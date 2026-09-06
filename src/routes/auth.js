@@ -7,12 +7,14 @@ import {
   issueAuthSession,
   readRefreshToken,
   requireAuth,
+  requireFullSession,
   revokeRefreshToken,
 } from '../middleware/auth.js';
 import { hashRefreshToken } from '../utils/tokens.js';
 import { normalizeUsername, validateEmail, validateUsername } from '../utils/user-fields.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { audit } from '../logger.js';
+import { serializeMemberProfile } from '../utils/member-profile.js';
 
 const router = Router();
 const VOICE_PARTS = ['soprano', 'alto', 'tenor', 'bass', 'other'];
@@ -186,6 +188,14 @@ router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   }
 
   res.json({ user: req.user.toSafeJSON() });
+}));
+
+router.get('/my-profile', requireAuth, requireFullSession, asyncHandler(async (req, res) => {
+  if (req.user.role !== 'member') {
+    return res.status(403).json({ error: 'Only choir members can view this profile' });
+  }
+
+  res.json({ profile: serializeMemberProfile(req.user) });
 }));
 
 router.post('/change-password', requireAuth, authLimiter, asyncHandler(async (req, res) => {

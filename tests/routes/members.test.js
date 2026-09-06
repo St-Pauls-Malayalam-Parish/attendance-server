@@ -178,6 +178,41 @@ describe('members routes', () => {
     expect(res.status).toBe(403);
   });
 
+  it('gets and updates member development profile', async () => {
+    const member = buildUser();
+    const id = member._id.toString();
+    setFindOneResult(User, member);
+
+    const getRes = await request(createApp()).get(`/api/members/${id}/profile`).set(authHeader(admin));
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.profile.feedbackHistory).toEqual([]);
+
+    const patchRes = await request(createApp())
+      .patch(`/api/members/${id}/profile`)
+      .set(authHeader(admin))
+      .send({
+        voiceRange: 'Tenor: C3–B4',
+        feedback: 'Strong projection',
+        choirPathway: 'emerging-vocalists',
+      });
+    expect(patchRes.status).toBe(200);
+    expect(patchRes.body.profile.voiceRange).toBe('Tenor: C3–B4');
+    expect(patchRes.body.profile.feedbackHistory).toHaveLength(1);
+    expect(member.save).toHaveBeenCalled();
+  });
+
+  it('validates member profile updates', async () => {
+    const member = buildUser();
+    const id = member._id.toString();
+    setFindOneResult(User, member);
+
+    const empty = await request(createApp())
+      .patch(`/api/members/${id}/profile`)
+      .set(authHeader(admin))
+      .send({});
+    expect(empty.status).toBe(400);
+  });
+
   it('validates member create body', async () => {
     const shortPassword = await request(createApp())
       .post('/api/members')

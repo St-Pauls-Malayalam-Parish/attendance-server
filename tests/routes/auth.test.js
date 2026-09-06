@@ -7,7 +7,7 @@ import request from 'supertest';
 import bcrypt from 'bcryptjs';
 import { createApp } from '../../src/app.js';
 import { User, resetModelMocks, findOneQuery, setFindOneResult } from '../helpers/model-mocks.js';
-import { buildUser, buildAdmin, authHeader, signTestToken } from '../helpers/fixtures.js';
+import { buildUser, buildAdmin, authHeader, signTestToken, userId } from '../helpers/fixtures.js';
 import { hashRefreshToken } from '../../src/utils/tokens.js';
 import { issueAuthSession, requireAuth } from '../../src/middleware/auth.js';
 
@@ -173,6 +173,41 @@ describe('auth routes', () => {
     const current = await request(createApp()).get('/api/auth/me').set(authHeader(user));
     expect(current.status).toBe(200);
     expect(current.body.user.username).toBe('evan.thomas');
+  });
+
+  it('returns choir profile for approved members only', async () => {
+    const member = buildUser({
+      voiceRange: 'C3–G5',
+      choirPathway: 'lead-vocalists',
+      voiceRangeHistory: [
+        {
+          _id: userId(),
+          value: 'C3–G5',
+          recordedAt: new Date('2026-02-01T10:00:00.000Z'),
+          recordedByName: 'Choir admin',
+        },
+      ],
+    });
+    User.findById.mockResolvedValue(member);
+
+    const res = await request(createApp()).get('/api/auth/my-profile').set(authHeader(member));
+    expect(res.status).toBe(200);
+    expect(res.body.profile.voiceRange).toBe('C3–G5');
+    expect(res.body.profile.voiceRangeHistory).toHaveLength(1);
+  });
+
+  it('rejects choir profile for admins and pending members', async () => {
+    const adminUser = buildAdmin();
+    User.findById.mockResolvedValue(adminUser);
+    expect(
+      (await request(createApp()).get('/api/auth/my-profile').set(authHeader(adminUser))).status
+    ).toBe(403);
+
+    const pending = buildUser({ approvalStatus: 'pending' });
+    User.findById.mockResolvedValue(pending);
+    expect(
+      (await request(createApp()).get('/api/auth/my-profile').set(authHeader(pending, 'pending'))).status
+    ).toBe(403);
   });
 
   it('changes password and clears mustChangePassword', async () => {

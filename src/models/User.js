@@ -1,4 +1,11 @@
 import mongoose from 'mongoose';
+import { CHOIR_PATHWAYS } from '../utils/member-profile.js';
+
+const profileHistoryFields = {
+  recordedAt: { type: Date, default: Date.now },
+  recordedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  recordedByName: { type: String, trim: true },
+};
 
 const userSchema = new mongoose.Schema(
   {
@@ -12,6 +19,30 @@ const userSchema = new mongoose.Schema(
       enum: ['soprano', 'alto', 'tenor', 'bass', 'other'],
       default: 'other',
     },
+    voiceRange: { type: String, default: '', trim: true, maxlength: 200 },
+    choirPathway: {
+      type: String,
+      enum: [...CHOIR_PATHWAYS, ''],
+      default: '',
+    },
+    voiceRangeHistory: [
+      {
+        value: { type: String, required: true, trim: true, maxlength: 200 },
+        ...profileHistoryFields,
+      },
+    ],
+    feedbackHistory: [
+      {
+        text: { type: String, required: true, trim: true, maxlength: 2000 },
+        ...profileHistoryFields,
+      },
+    ],
+    pathwayHistory: [
+      {
+        pathway: { type: String, required: true, enum: CHOIR_PATHWAYS },
+        ...profileHistoryFields,
+      },
+    ],
     active: { type: Boolean, default: true },
     approvalStatus: {
       type: String,

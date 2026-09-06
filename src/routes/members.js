@@ -10,6 +10,11 @@ import { audit } from '../logger.js';
 import { eventDateQuery } from '../utils/dates.js';
 import { buildPaginationMeta, parsePagination } from '../utils/event-query.js';
 import { aggregateAttendanceByUsers, summaryFromCounts } from '../utils/attendance-stats.js';
+import {
+  applyProfileUpdate,
+  serializeMemberProfile,
+  validateProfileUpdate,
+} from '../utils/member-profile.js';
 
 const router = Router();
 const VOICE_PARTS = ['soprano', 'alto', 'tenor', 'bass', 'other'];
@@ -82,6 +87,8 @@ function serializeMember(member, stats = {}) {
     username: member.username,
     email: member.email,
     voicePart: member.voicePart,
+    voiceRange: member.voiceRange || '',
+    choirPathway: member.choirPathway || '',
     active: member.active,
     approvalStatus: member.approvalStatus || 'pending',
     createdAt: member.createdAt,
@@ -102,7 +109,9 @@ router.get('/roster', asyncHandler(async (req, res) => {
     User.countDocuments(filter),
     User.countDocuments({ role: 'member', approvalStatus: 'approved', active: true }),
     User.find(filter)
-      .select('name username email voicePart active approvalStatus createdAt')
+      .select(
+        'name username email voicePart voiceRange choirPathway active approvalStatus createdAt'
+      )
       .sort({ name: 1 })
       .skip(skip)
       .limit(pageSize)
@@ -130,7 +139,9 @@ router.get('/roster', asyncHandler(async (req, res) => {
 
 router.get('/', asyncHandler(async (_req, res) => {
   const members = await User.find({ role: 'member' })
-    .select('name username email voicePart active approvalStatus createdAt')
+    .select(
+      'name username email voicePart voiceRange choirPathway active approvalStatus createdAt'
+    )
     .sort({ createdAt: -1 })
     .lean();
 
@@ -181,6 +192,55 @@ router.post('/', asyncHandler(async (req, res) => {
     targetUsername: user.username,
   });
   res.status(201).json({ member: user.toSafeJSON() });
+}));
+
+router.get('/:id/profile', asyncHandler(async (req, res) => {
+  const member = await findMember(req.params.id, res);
+  if (!member) return;
+
+  res.json({
+    member: {
+      id: member._id.toString(),
+      name: member.name,
+      username: member.username,
+      voicePart: member.voicePart,
+    },
+    profile: serializeMemberProfile(member),
+  });
+}));
+
+router.patch('/:id/profile', asyncHandler(async (req, res) => {
+  const member = await findMember(req.params.id, res);
+  if (!member) return;
+
+  const { voiceRange, feedback, choirPathway } = req.body;
+  const error = validateProfileUpdate({ voiceRange, feedback, choirPathway });
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  applyProfileUpdate(member, { voiceRange, feedback, choirPathway }, req.user);
+  await member.save();
+
+  audit('member.profile.updated', req, {
+    targetUserId: member._id.toString(),
+    targetUsername: member.username,
+    updatedFields: [
+      voiceRange !== undefined ? 'voiceRange' : null,
+      feedback !== undefined ? 'feedback' : null,
+      choirPathway !== undefined ? 'choirPathway' : null,
+    ].filter(Boolean),
+  });
+
+  res.json({
+    member: {
+      id: member._id.toString(),
+      name: member.name,
+      username: member.username,
+      voicePart: member.voicePart,
+    },
+    profile: serializeMemberProfile(member),
+  });
 }));
 
 router.patch('/:id', asyncHandler(async (req, res) => {
