@@ -27,10 +27,12 @@ function createModelMock() {
 export const User = createModelMock();
 export const Event = createModelMock();
 export const Attendance = createModelMock();
+export const Faq = createModelMock();
 
 vi.mock('../../src/models/User.js', () => ({ User }));
 vi.mock('../../src/models/Event.js', () => ({ Event }));
 vi.mock('../../src/models/Attendance.js', () => ({ Attendance }));
+vi.mock('../../src/models/Faq.js', () => ({ Faq }));
 
 export function setFindOneResult(model, value) {
   model.findOne.mockImplementation(() => findOneQuery(value));
@@ -41,7 +43,7 @@ export function setFindOneImplementation(model, fn) {
 }
 
 export function resetModelMocks() {
-  for (const model of [User, Event, Attendance]) {
+  for (const model of [User, Event, Attendance, Faq]) {
     for (const key of Object.keys(model)) {
       if (typeof model[key]?.mockReset === 'function') {
         model[key].mockReset();

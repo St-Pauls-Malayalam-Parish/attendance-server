@@ -16,6 +16,7 @@ import { eventDateQuery, parseDay } from '../../src/utils/dates.js';
 import { summaryFromCounts } from '../../src/utils/attendance-stats.js';
 import { isValidLiturgicalColor, LITURGICAL_COLORS } from '../../src/utils/liturgical-colors.js';
 import { MIN_PASSWORD_LENGTH, validatePassword } from '../../src/utils/password.js';
+import { faqAudiencesForRole, isFaqAudience } from '../../src/utils/faq-audiences.js';
 
 describe('user-fields', () => {
   it('normalizes username', () => {
@@ -149,6 +150,16 @@ describe('attendance-stats summaryFromCounts', () => {
       rate: 90,
     });
     expect(summaryFromCounts({}).rate).toBe(0);
+  });
+});
+
+describe('faq-audiences', () => {
+  it('validates audience values and role filters', () => {
+    expect(isFaqAudience('member')).toBe(true);
+    expect(isFaqAudience('both')).toBe(true);
+    expect(isFaqAudience('invalid')).toBe(false);
+    expect(faqAudiencesForRole('member')).toEqual(['member', 'both']);
+    expect(faqAudiencesForRole('admin')).toEqual(['admin', 'both']);
   });
 });
 

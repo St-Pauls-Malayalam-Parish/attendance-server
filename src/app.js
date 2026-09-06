@@ -9,6 +9,7 @@ import authRoutes from './routes/auth.js';
 import eventRoutes from './routes/events.js';
 import attendanceRoutes from './routes/attendance.js';
 import memberRoutes from './routes/members.js';
+import faqRoutes from './routes/faqs.js';
 import healthRoutes from './routes/health.js';
 
 /**
@@ -38,6 +39,7 @@ export function createApp({ getIsShuttingDown = () => false } = {}) {
   app.use('/api/events', eventRoutes);
   app.use('/api/attendance', attendanceRoutes);
   app.use('/api/members', memberRoutes);
+  app.use('/api/faqs', faqRoutes);
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' });

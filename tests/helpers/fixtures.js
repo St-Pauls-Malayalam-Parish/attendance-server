@@ -4,6 +4,7 @@ import { vi } from 'vitest';
 
 export const userId = () => new mongoose.Types.ObjectId();
 export const eventId = () => new mongoose.Types.ObjectId();
+export const faqId = () => new mongoose.Types.ObjectId();
 
 export function buildUser(overrides = {}) {
   const _id = overrides._id || userId();
@@ -65,6 +66,22 @@ export function buildEvent(overrides = {}) {
     notes: '',
     liturgicalColor: 'green',
     createdBy: userId(),
+    ...overrides,
+  };
+}
+
+export function buildFaq(overrides = {}) {
+  const _id = overrides._id || faqId();
+  return {
+    _id,
+    question: 'How do I view my attendance?',
+    answer: 'Open My attendance from the menu to see your records.',
+    audience: 'member',
+    sortOrder: 0,
+    published: true,
+    createdBy: userId(),
+    createdAt: new Date('2026-01-01T10:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T10:00:00.000Z'),
     ...overrides,
   };
 }
