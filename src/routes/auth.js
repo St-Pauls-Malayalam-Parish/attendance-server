@@ -15,6 +15,7 @@ import { normalizeUsername, validateEmail, validateUsername } from '../utils/use
 import { asyncHandler } from '../utils/async-handler.js';
 import { audit } from '../logger.js';
 import { serializeMemberProfile } from '../utils/member-profile.js';
+import { validatePassword } from '../utils/password.js';
 
 import { isChoirVoicePart } from '../utils/voice-parts.js';
 
@@ -36,9 +37,8 @@ function validateRegister({ name, username, email, password, voicePart }) {
   if (usernameError) return usernameError;
   const emailError = validateEmail(email);
   if (emailError) return emailError;
-  if (!password || password.length < 8) {
-    return 'Password must be at least 8 characters';
-  }
+  const passwordError = validatePassword(password, { required: true });
+  if (passwordError) return passwordError;
   if (!voicePart || !isChoirVoicePart(voicePart)) {
     return 'Please choose a voice part';
   }
@@ -205,8 +205,9 @@ router.post('/change-password', requireAuth, authLimiter, asyncHandler(async (re
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current and new password are required' });
   }
-  if (newPassword.length < 8) {
-    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  const passwordError = validatePassword(newPassword, { required: true, fieldLabel: 'New password' });
+  if (passwordError) {
+    return res.status(400).json({ error: passwordError });
   }
 
   const ok = await bcrypt.compare(currentPassword, req.user.passwordHash);

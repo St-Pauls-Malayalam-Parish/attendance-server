@@ -15,6 +15,7 @@ import {
   serializeMemberProfile,
   validateProfileUpdate,
 } from '../utils/member-profile.js';
+import { validatePassword } from '../utils/password.js';
 
 import { isChoirVoicePart } from '../utils/voice-parts.js';
 
@@ -45,12 +46,8 @@ function validateMemberBody({ name, username, email, password, voicePart }, { pa
   }
   const emailError = validateEmail(email);
   if (emailError) return emailError;
-  if (passwordRequired && (!password || password.length < 8)) {
-    return 'Password must be at least 8 characters';
-  }
-  if (password && password.length < 8) {
-    return 'Password must be at least 8 characters';
-  }
+  const passwordError = validatePassword(password, { required: passwordRequired });
+  if (passwordError) return passwordError;
   if (!isChoirVoicePart(voicePart)) {
     return 'Invalid voice part';
   }

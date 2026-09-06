@@ -12,6 +12,7 @@ import {
   validateEmail,
   validateUsername,
 } from '../src/utils/user-fields.js';
+import { validatePassword } from '../src/utils/password.js';
 
 dotenv.config();
 
@@ -145,8 +146,12 @@ async function importMembers(options) {
   if (!uri) {
     throw new Error('MONGODB_URI is not set');
   }
-  if (!options.defaultPassword || options.defaultPassword.length < 8) {
-    throw new Error('Default password must be at least 8 characters');
+  const defaultPasswordError = validatePassword(options.defaultPassword, {
+    required: true,
+    fieldLabel: 'Default password',
+  });
+  if (defaultPasswordError) {
+    throw new Error(defaultPasswordError);
   }
 
   const rows = loadMembers(options.file);
@@ -185,8 +190,9 @@ async function importMembers(options) {
       }
 
       const rowPassword = member.password || options.defaultPassword;
-      if (rowPassword.length < 8) {
-        throw new Error('password must be at least 8 characters');
+      const rowPasswordError = validatePassword(rowPassword, { required: true });
+      if (rowPasswordError) {
+        throw new Error(rowPasswordError);
       }
 
       if (options.dryRun) {

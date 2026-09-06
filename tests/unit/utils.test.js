@@ -15,6 +15,7 @@ import {
 import { eventDateQuery, parseDay } from '../../src/utils/dates.js';
 import { summaryFromCounts } from '../../src/utils/attendance-stats.js';
 import { isValidLiturgicalColor, LITURGICAL_COLORS } from '../../src/utils/liturgical-colors.js';
+import { MIN_PASSWORD_LENGTH, validatePassword } from '../../src/utils/password.js';
 
 describe('user-fields', () => {
   it('normalizes username', () => {
@@ -148,6 +149,22 @@ describe('attendance-stats summaryFromCounts', () => {
       rate: 90,
     });
     expect(summaryFromCounts({}).rate).toBe(0);
+  });
+});
+
+describe('password', () => {
+  it('validates required and optional passwords', () => {
+    expect(validatePassword('', { required: true })).toMatch(/8 characters/);
+    expect(validatePassword('short', { required: true })).toMatch(/8 characters/);
+    expect(validatePassword('longenough', { required: true })).toBeNull();
+    expect(validatePassword('', { required: false })).toBeNull();
+    expect(validatePassword('short', { required: false })).toMatch(/8 characters/);
+  });
+
+  it('supports custom field labels', () => {
+    expect(
+      validatePassword('short', { required: true, fieldLabel: 'New password' })
+    ).toBe(`New password must be at least ${MIN_PASSWORD_LENGTH} characters`);
   });
 });
 
