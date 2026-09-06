@@ -16,7 +16,7 @@ import {
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const VOICE_PARTS = new Set(['soprano', 'alto', 'tenor', 'bass', 'other']);
+const VOICE_PARTS = new Set(['soprano', 'alto', 'tenor', 'bass']);
 const DEFAULT_DATA_FILE = path.join(__dirname, '../data/members.json');
 
 function printUsage() {

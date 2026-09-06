@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { CHOIR_PATHWAYS } from '../utils/member-profile.js';
+import { USER_VOICE_PART_ENUM } from '../utils/voice-parts.js';
 
 const profileHistoryFields = {
   recordedAt: { type: Date, default: Date.now },
@@ -16,8 +17,8 @@ const userSchema = new mongoose.Schema(
     role: { type: String, enum: ['member', 'admin'], default: 'member' },
     voicePart: {
       type: String,
-      enum: ['soprano', 'alto', 'tenor', 'bass', 'other'],
-      default: 'other',
+      enum: USER_VOICE_PART_ENUM,
+      required: true,
     },
     voiceRange: { type: String, default: '', trim: true, maxlength: 200 },
     choirPathway: {

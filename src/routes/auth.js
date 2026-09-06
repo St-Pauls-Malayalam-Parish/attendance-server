@@ -16,8 +16,9 @@ import { asyncHandler } from '../utils/async-handler.js';
 import { audit } from '../logger.js';
 import { serializeMemberProfile } from '../utils/member-profile.js';
 
+import { isChoirVoicePart } from '../utils/voice-parts.js';
+
 const router = Router();
-const VOICE_PARTS = ['soprano', 'alto', 'tenor', 'bass', 'other'];
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -38,8 +39,8 @@ function validateRegister({ name, username, email, password, voicePart }) {
   if (!password || password.length < 8) {
     return 'Password must be at least 8 characters';
   }
-  if (voicePart && !VOICE_PARTS.includes(voicePart)) {
-    return 'Please choose a valid voice part';
+  if (!voicePart || !isChoirVoicePart(voicePart)) {
+    return 'Please choose a voice part';
   }
   return null;
 }
@@ -58,7 +59,7 @@ function sendAuthResponse(res, statusCode, session, req) {
 }
 
 router.post('/register', authLimiter, asyncHandler(async (req, res) => {
-  const { name, username, email, password, voicePart = 'other' } = req.body;
+  const { name, username, email, password, voicePart } = req.body;
   const error = validateRegister({ name, username, email, password, voicePart });
   if (error) return res.status(400).json({ error });
 

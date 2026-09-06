@@ -16,8 +16,9 @@ import {
   validateProfileUpdate,
 } from '../utils/member-profile.js';
 
+import { isChoirVoicePart } from '../utils/voice-parts.js';
+
 const router = Router();
-const VOICE_PARTS = ['soprano', 'alto', 'tenor', 'bass', 'other'];
 
 router.use(requireAuth, requireAdmin);
 
@@ -50,7 +51,7 @@ function validateMemberBody({ name, username, email, password, voicePart }, { pa
   if (password && password.length < 8) {
     return 'Password must be at least 8 characters';
   }
-  if (!VOICE_PARTS.includes(voicePart)) {
+  if (!isChoirVoicePart(voicePart)) {
     return 'Invalid voice part';
   }
   return null;
@@ -73,7 +74,7 @@ function buildRosterFilter(query) {
     ];
   }
 
-  if (query.voicePart && VOICE_PARTS.includes(query.voicePart)) {
+  if (query.voicePart && isChoirVoicePart(query.voicePart)) {
     filter.voicePart = query.voicePart;
   }
 
@@ -155,7 +156,7 @@ router.get('/', asyncHandler(async (_req, res) => {
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
-  const { name, username, email, password, voicePart = 'other' } = req.body;
+  const { name, username, email, password, voicePart } = req.body;
   const error = validateMemberBody(
     { name, username, email, password, voicePart },
     { passwordRequired: true, usernameRequired: true }
@@ -245,7 +246,7 @@ router.patch('/:id/profile', asyncHandler(async (req, res) => {
 
 router.patch('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { name, username, email, voicePart = 'other', password } = req.body;
+  const { name, username, email, voicePart, password } = req.body;
 
   if (!mongoose.isValidObjectId(id)) {
     return res.status(400).json({ error: 'Invalid member' });

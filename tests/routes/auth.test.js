@@ -58,6 +58,25 @@ describe('auth routes', () => {
     });
     expect(shortPassword.status).toBe(400);
     expect(shortPassword.body.error).toMatch(/8 characters/i);
+
+    const missingVoicePart = await request(createApp()).post('/api/auth/register').send({
+      name: 'Evan Thomas',
+      username: 'evan.thomas',
+      email: 'evan@stpauls.parish',
+      password: 'password123',
+    });
+    expect(missingVoicePart.status).toBe(400);
+    expect(missingVoicePart.body.error).toMatch(/voice part/i);
+
+    const invalidVoicePart = await request(createApp()).post('/api/auth/register').send({
+      name: 'Evan Thomas',
+      username: 'evan.thomas',
+      email: 'evan@stpauls.parish',
+      password: 'password123',
+      voicePart: 'other',
+    });
+    expect(invalidVoicePart.status).toBe(400);
+    expect(invalidVoicePart.body.error).toMatch(/voice part/i);
   });
 
   it('rejects duplicate username and email', async () => {
@@ -67,6 +86,7 @@ describe('auth routes', () => {
       username: 'evan.thomas',
       email: 'evan@stpauls.parish',
       password: 'password123',
+      voicePart: 'tenor',
     });
     expect(username.status).toBe(409);
 
@@ -78,6 +98,7 @@ describe('auth routes', () => {
       username: 'new.user',
       email: 'evan@stpauls.parish',
       password: 'password123',
+      voicePart: 'tenor',
     });
     expect(email.status).toBe(409);
   });

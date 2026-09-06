@@ -1,5 +1,4 @@
 import dotenv from 'dotenv';
-import mongoose from 'mongoose';
 import { connectDb, disconnectDb } from '../src/db.js';
 import { User } from '../src/models/User.js';
 import { Event } from '../src/models/Event.js';
@@ -51,11 +50,52 @@ async function backfillUsernames() {
   console.log(`username backfill: ${updated} user(s) updated`);
 }
 
+async function backfillMemberProfileFields() {
+  const result = await User.updateMany(
+    {
+      $or: [
+        { voiceRange: { $exists: false } },
+        { choirPathway: { $exists: false } },
+        { voiceRangeHistory: { $exists: false } },
+        { feedbackHistory: { $exists: false } },
+        { pathwayHistory: { $exists: false } },
+      ],
+    },
+    {
+      $set: {
+        voiceRange: '',
+        choirPathway: '',
+        voiceRangeHistory: [],
+        feedbackHistory: [],
+        pathwayHistory: [],
+      },
+    }
+  );
+  console.log(`profile fields backfill: ${result.modifiedCount} user(s) updated`);
+}
+
+async function migrateLegacyVoiceParts() {
+  const adminResult = await User.updateMany(
+    { voicePart: 'other', role: 'admin' },
+    { $set: { voicePart: 'tenor' } }
+  );
+  console.log(`admin voicePart other → tenor: ${adminResult.modifiedCount} user(s) updated`);
+
+  const remaining = await User.countDocuments({ voicePart: 'other', role: 'member' });
+  if (remaining > 0) {
+    console.log(
+      `${remaining} member(s) still have voicePart "other". Set each member's voice part in Admin → Members → Edit.`
+    );
+  }
+}
+
 async function migrate() {
   await connectDb();
   await backfillApprovalStatus();
   await renameRehearsalEvents();
   await backfillUsernames();
+  await backfillMemberProfileFields();
+  await migrateLegacyVoiceParts();
 }
 
 migrate()
