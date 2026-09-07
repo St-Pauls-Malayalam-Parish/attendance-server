@@ -11,6 +11,14 @@ describe('attendance routes', () => {
   const admin = buildAdmin();
   const member = buildUser();
 
+  function mockApprovedMemberList(memberIds = []) {
+    User.find.mockReturnValue({
+      select: () => ({
+        lean: async () => memberIds.map((id) => ({ _id: id })),
+      }),
+    });
+  }
+
   beforeEach(() => {
     resetModelMocks();
   });
@@ -144,6 +152,7 @@ describe('attendance routes', () => {
     const uid = userId().toString();
     Event.findById.mockResolvedValue(event);
     User.countDocuments.mockResolvedValue(1);
+    mockApprovedMemberList([]);
     Attendance.bulkWrite.mockResolvedValue({});
 
     const res = await request(createApp())
@@ -160,6 +169,7 @@ describe('attendance routes', () => {
     const uid = userId().toString();
     Event.findById.mockResolvedValue(event);
     User.countDocuments.mockResolvedValue(1);
+    mockApprovedMemberList([]);
     Attendance.bulkWrite.mockResolvedValue({});
 
     const res = await request(createApp())
@@ -196,6 +206,7 @@ describe('attendance routes', () => {
     ).toBe(404);
 
     Event.findById.mockResolvedValue(buildEvent());
+    mockApprovedMemberList([]);
     expect(
       (
         await request(createApp())
@@ -206,6 +217,7 @@ describe('attendance routes', () => {
     ).toBe(400);
 
     User.countDocuments.mockResolvedValue(0);
+    mockApprovedMemberList([]);
     expect(
       (
         await request(createApp())
@@ -300,14 +312,34 @@ describe('attendance routes', () => {
     User.findById.mockResolvedValue(admin);
     const event = buildEvent();
     const eid = event._id.toString();
+    const missingMemberId = userId();
     Event.findById.mockResolvedValue(event);
+    User.find.mockReturnValue({
+      select: () => ({
+        lean: async () => [{ _id: missingMemberId }],
+      }),
+    });
+    Attendance.bulkWrite.mockResolvedValue({});
 
     const empty = await request(createApp())
       .put(`/api/attendance/event/${eid}`)
       .set(authHeader(admin))
       .send({ records: [] });
     expect(empty.status).toBe(200);
-    expect(empty.body.saved).toBe(0);
+    expect(empty.body.saved).toBe(1);
+    expect(Attendance.bulkWrite).toHaveBeenCalledWith([
+      expect.objectContaining({
+        updateOne: expect.objectContaining({
+          filter: { user: missingMemberId.toString(), event: eid },
+          update: {
+            $set: expect.objectContaining({
+              status: 'absent',
+              late: false,
+            }),
+          },
+        }),
+      }),
+    ]);
 
     const badStatus = await request(createApp())
       .put(`/api/attendance/event/${eid}`)
@@ -316,7 +348,54 @@ describe('attendance routes', () => {
     expect(badStatus.status).toBe(400);
   });
 
-  it('resolves unmarked and upcoming statuses on /me', async () => {
+  it('marks omitted members as absent when saving attendance', async () => {
+    User.findById.mockResolvedValue(admin);
+    const event = buildEvent();
+    const eid = event._id.toString();
+    const presentMemberId = userId();
+    const absentMemberId = userId();
+    Event.findById.mockResolvedValue(event);
+    User.countDocuments.mockResolvedValue(1);
+    User.find.mockImplementation(() => ({
+      select: () => ({
+        lean: async () => [{ _id: presentMemberId }, { _id: absentMemberId }],
+      }),
+    }));
+    Attendance.bulkWrite.mockResolvedValue({});
+
+    const res = await request(createApp())
+      .put(`/api/attendance/event/${eid}`)
+      .set(authHeader(admin))
+      .send({
+        records: [{ userId: presentMemberId.toString(), status: 'present', notes: 'On time' }],
+      });
+
+    expect(res.status).toBe(200);
+    const writes = Attendance.bulkWrite.mock.calls.at(-1)?.[0] ?? [];
+    expect(User.find).toHaveBeenCalled();
+    expect(writes).toHaveLength(2);
+    expect(res.body.saved).toBe(2);
+    expect(Attendance.bulkWrite).toHaveBeenCalledWith([
+      expect.objectContaining({
+        updateOne: expect.objectContaining({
+          filter: { user: presentMemberId.toString(), event: eid },
+        }),
+      }),
+      expect.objectContaining({
+        updateOne: expect.objectContaining({
+          filter: { user: absentMemberId.toString(), event: eid },
+          update: {
+            $set: expect.objectContaining({
+              status: 'absent',
+              late: false,
+            }),
+          },
+        }),
+      }),
+    ]);
+  });
+
+  it('resolves absent and upcoming statuses on /me', async () => {
     User.findById.mockResolvedValue(member);
     const past = buildEvent({ date: new Date('2020-01-01T10:00:00.000Z') });
     const future = buildEvent({ _id: eventId(), date: new Date('2099-01-01T10:00:00.000Z') });
@@ -329,7 +408,7 @@ describe('attendance routes', () => {
     const res = await request(createApp()).get('/api/attendance/me').set(authHeader(member));
     expect(res.status).toBe(200);
     const statuses = res.body.history.map((row) => row.status);
-    expect(statuses).toContain('unmarked');
+    expect(statuses).toContain('absent');
     expect(statuses).toContain('upcoming');
   });
 
@@ -340,6 +419,7 @@ describe('attendance routes', () => {
     const uid = userId().toString();
     Event.findById.mockResolvedValue(event);
     User.countDocuments.mockResolvedValue(1);
+    mockApprovedMemberList([]);
     Attendance.bulkWrite.mockResolvedValue({});
 
     const saved = await request(createApp())
@@ -349,6 +429,7 @@ describe('attendance routes', () => {
     expect(saved.status).toBe(200);
 
     User.countDocuments.mockResolvedValue(1);
+    mockApprovedMemberList([]);
     const partial = await request(createApp())
       .put(`/api/attendance/event/${eid}`)
       .set(authHeader(admin))

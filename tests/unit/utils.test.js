@@ -16,10 +16,6 @@ import { eventDateQuery, parseDay } from '../../src/utils/dates.js';
 import { summaryFromCounts } from '../../src/utils/attendance-stats.js';
 import {
   countsFromAttendanceRows,
-  displayAttendanceStatus,
-  isLateArrival,
-  normalizeAttendanceInput,
-  serializeRosterAttendance,
 } from '../../src/utils/attendance-status.js';
 import { isValidLiturgicalColor, LITURGICAL_COLORS } from '../../src/utils/liturgical-colors.js';
 import { MIN_PASSWORD_LENGTH, validatePassword } from '../../src/utils/password.js';

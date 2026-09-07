@@ -10,6 +10,8 @@ const mockConnection = {
   },
 };
 
+let objectIdCounter = 0;
+
 export const mongooseMock = {
   connection: mockConnection,
   set: vi.fn(),
@@ -19,7 +21,9 @@ export const mongooseMock = {
   Types: {
     ObjectId: class ObjectId {
       constructor(id) {
-        this.id = id || '507f1f77bcf86cd799439011';
+        this.id =
+          id ||
+          `${(++objectIdCounter).toString(16).padStart(6, '0')}${'0'.repeat(18)}`.slice(0, 24);
       }
       toString() {
         return String(this.id);
@@ -49,6 +53,7 @@ export function setDbConnected(connected = true) {
 }
 
 export function resetMongooseMock() {
+  objectIdCounter = 0;
   mockConnection.readyState = 1;
   mongooseMock.connect.mockClear();
   mongooseMock.disconnect.mockClear();

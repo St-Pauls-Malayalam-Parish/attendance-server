@@ -62,9 +62,34 @@ function parseStatusFilter(value) {
 function resolveAttendanceStatus(event, record) {
   const upcoming = new Date(event.date) > new Date();
   if (!record) {
-    return upcoming ? 'upcoming' : 'unmarked';
+    return upcoming ? 'upcoming' : 'absent';
   }
   return displayAttendanceStatus(record);
+}
+
+function buildAttendanceUpsertOp({ userId, eventId, status, late, notes, markedBy }) {
+  const normalized = normalizeAttendanceInput({
+    status: status || 'absent',
+    late,
+  });
+  if (!normalized) {
+    return null;
+  }
+
+  return {
+    updateOne: {
+      filter: { user: userId, event: eventId },
+      update: {
+        $set: {
+          status: normalized.status,
+          late: normalized.late,
+          notes: typeof notes === 'string' ? notes.trim().slice(0, 500) : '',
+          markedBy,
+        },
+      },
+      upsert: true,
+    },
+  };
 }
 
 function serializeHistoryEvent(event) {
@@ -225,29 +250,43 @@ router.put('/event/:eventId', requireAdmin, asyncHandler(async (req, res) => {
   }
 
   const ops = [];
+  const submittedUserIds = new Set();
+
   for (const row of records) {
     if (!mongoose.isValidObjectId(row.userId)) {
       return res.status(400).json({ error: 'Each row needs a member and a valid status' });
     }
-    const normalized = normalizeAttendanceInput({ status: row.status, late: row.late });
-    if (!normalized) {
+    const op = buildAttendanceUpsertOp({
+      userId: row.userId,
+      eventId,
+      status: row.status,
+      late: row.late,
+      notes: row.notes,
+      markedBy: req.user._id,
+    });
+    if (!op) {
       return res.status(400).json({ error: 'Each row needs a member and a valid status' });
     }
-    const notes = typeof row.notes === 'string' ? row.notes.trim().slice(0, 500) : '';
-    ops.push({
-      updateOne: {
-        filter: { user: row.userId, event: eventId },
-        update: {
-          $set: {
-            status: normalized.status,
-            late: normalized.late,
-            notes,
-            markedBy: req.user._id,
-          },
-        },
-        upsert: true,
-      },
-    });
+    submittedUserIds.add(String(row.userId));
+    ops.push(op);
+  }
+
+  const members = await User.find(approvedMemberFilter).select('_id').lean();
+  for (const member of members) {
+    const memberId = String(member._id);
+    if (submittedUserIds.has(memberId)) {
+      continue;
+    }
+    ops.push(
+      buildAttendanceUpsertOp({
+        userId: memberId,
+        eventId,
+        status: 'absent',
+        late: false,
+        notes: '',
+        markedBy: req.user._id,
+      })
+    );
   }
 
   if (ops.length) {
@@ -255,7 +294,7 @@ router.put('/event/:eventId', requireAdmin, asyncHandler(async (req, res) => {
       ...approvedMemberFilter,
       _id: { $in: records.map((row) => row.userId) },
     });
-    if (allowed !== records.length) {
+    if (records.length && allowed !== records.length) {
       return res.status(400).json({ error: 'Attendance can only be marked for approved members' });
     }
     await Attendance.bulkWrite(ops);
