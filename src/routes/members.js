@@ -11,6 +11,10 @@ import { eventDateQuery } from '../utils/dates.js';
 import { buildPaginationMeta, parsePagination } from '../utils/event-query.js';
 import { aggregateAttendanceByUsers, summaryFromCounts } from '../utils/attendance-stats.js';
 import {
+  findUserIdsByAttendanceStatus,
+  parseRosterAttendanceFilter,
+} from '../utils/roster-attendance-filter.js';
+import {
   applyProfileUpdate,
   serializeMemberProfile,
   validateProfileUpdate,
@@ -101,6 +105,12 @@ router.get('/roster', asyncHandler(async (req, res) => {
   }
 
   const filter = buildRosterFilter(req.query);
+  const attendanceStatus = parseRosterAttendanceFilter(req.query.attendanceStatus);
+  if (attendanceStatus) {
+    const matchingUserIds = await findUserIdsByAttendanceStatus(attendanceStatus, dateQuery.range);
+    filter._id = { $in: matchingUserIds };
+  }
+
   const { page, pageSize, skip } = parsePagination(req.query);
 
   const [total, totalUnfiltered, members] = await Promise.all([
@@ -131,6 +141,7 @@ router.get('/roster', asyncHandler(async (req, res) => {
       dateFiltered: Boolean(dateQuery.range),
       from: req.query.from || '',
       to: req.query.to || '',
+      attendanceStatus,
     },
   });
 }));

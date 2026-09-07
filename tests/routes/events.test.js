@@ -151,4 +151,75 @@ describe('events routes', () => {
       expect.objectContaining({ notes: 'Welcome all' })
     );
   });
+
+  it('filters events by member attendance', async () => {
+    const event = buildEvent();
+    const memberId = userId().toString();
+    Attendance.distinct.mockResolvedValue([event._id]);
+    Event.countDocuments.mockResolvedValueOnce(1).mockResolvedValueOnce(5);
+    Event.find.mockReturnValue({
+      sort: () => ({
+        skip: () => ({
+          limit: () => ({
+            lean: async () => [event],
+          }),
+        }),
+      }),
+    });
+
+    const res = await request(createApp())
+      .get(`/api/events?memberId=${memberId}&attendanceStatus=present`)
+      .set(authHeader(admin));
+
+    expect(res.status).toBe(200);
+    expect(Attendance.distinct).toHaveBeenCalled();
+    expect(res.body.events).toHaveLength(1);
+    expect(res.body.meta.memberId).toBe(memberId);
+    expect(res.body.meta.attendanceStatus).toBe('present');
+  });
+
+  it('rejects member attendance filters without a member', async () => {
+    const res = await request(createApp())
+      .get('/api/events?attendanceStatus=present')
+      .set(authHeader(admin));
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects invalid member id for attendance filter', async () => {
+    const res = await request(createApp())
+      .get('/api/events?memberId=not-valid')
+      .set(authHeader(admin));
+    expect(res.status).toBe(400);
+  });
+
+  it('blocks non-admin member attendance filters', async () => {
+    const memberUser = buildAdmin({ role: 'member', approvalStatus: 'approved' });
+    User.findById.mockResolvedValue(memberUser);
+
+    const res = await request(createApp())
+      .get(`/api/events?memberId=${userId()}`)
+      .set(authHeader(memberUser));
+    expect(res.status).toBe(403);
+  });
+
+  it('returns empty list when member has no matching attendance', async () => {
+    const memberId = userId().toString();
+    Attendance.distinct.mockResolvedValue([]);
+    Event.countDocuments.mockResolvedValueOnce(0).mockResolvedValueOnce(5);
+    Event.find.mockReturnValue({
+      sort: () => ({
+        skip: () => ({
+          limit: () => ({ lean: async () => [] }),
+        }),
+      }),
+    });
+
+    const res = await request(createApp())
+      .get(`/api/events?memberId=${memberId}&attendanceStatus=absent`)
+      .set(authHeader(admin));
+
+    expect(res.status).toBe(200);
+    expect(res.body.events).toEqual([]);
+    expect(res.body.meta.attendanceStatus).toBe('absent');
+  });
 });

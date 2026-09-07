@@ -19,6 +19,7 @@ function createModelMock() {
     countDocuments: vi.fn(),
     create: vi.fn(),
     aggregate: vi.fn(),
+    distinct: vi.fn(),
     bulkWrite: vi.fn(),
     deleteMany: vi.fn(),
   };

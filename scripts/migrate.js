@@ -1,7 +1,8 @@
 import dotenv from 'dotenv';
 import { connectDb, disconnectDb } from '../src/db.js';
-import { User } from '../src/models/User.js';
+import { Attendance } from '../src/models/Attendance.js';
 import { Event } from '../src/models/Event.js';
+import { User } from '../src/models/User.js';
 import { normalizeUsername, usernameFromName } from '../src/utils/user-fields.js';
 
 dotenv.config();
@@ -89,6 +90,20 @@ async function migrateLegacyVoiceParts() {
   }
 }
 
+async function migrateLegacyLateAttendance() {
+  const result = await Attendance.updateMany(
+    { status: 'late' },
+    { $set: { status: 'present', late: true } }
+  );
+  console.log(`late status → present + late flag: ${result.modifiedCount} attendance record(s) updated`);
+
+  const backfill = await Attendance.updateMany(
+    { late: { $exists: false } },
+    { $set: { late: false } }
+  );
+  console.log(`attendance late flag backfill: ${backfill.modifiedCount} record(s) updated`);
+}
+
 async function migrate() {
   await connectDb();
   await backfillApprovalStatus();
@@ -96,6 +111,7 @@ async function migrate() {
   await backfillUsernames();
   await backfillMemberProfileFields();
   await migrateLegacyVoiceParts();
+  await migrateLegacyLateAttendance();
 }
 
 migrate()

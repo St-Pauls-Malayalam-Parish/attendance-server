@@ -14,6 +14,13 @@ import {
 } from '../../src/utils/event-query.js';
 import { eventDateQuery, parseDay } from '../../src/utils/dates.js';
 import { summaryFromCounts } from '../../src/utils/attendance-stats.js';
+import {
+  countsFromAttendanceRows,
+  displayAttendanceStatus,
+  isLateArrival,
+  normalizeAttendanceInput,
+  serializeRosterAttendance,
+} from '../../src/utils/attendance-status.js';
 import { isValidLiturgicalColor, LITURGICAL_COLORS } from '../../src/utils/liturgical-colors.js';
 import { MIN_PASSWORD_LENGTH, validatePassword } from '../../src/utils/password.js';
 import { faqAudiencesForRole, isFaqAudience } from '../../src/utils/faq-audiences.js';
@@ -148,8 +155,64 @@ describe('attendance-stats summaryFromCounts', () => {
       excused: 2,
       total: 12,
       rate: 90,
+      counted: 10,
     });
     expect(summaryFromCounts({}).rate).toBe(0);
+  });
+
+  it('does not reduce rate when most absences are excused', () => {
+    expect(summaryFromCounts({ present: 1, excused: 9, total: 10 })).toEqual({
+      present: 1,
+      absent: 0,
+      late: 0,
+      excused: 9,
+      total: 10,
+      rate: 100,
+      counted: 1,
+    });
+  });
+
+  it('does not assign a rate when only excused records exist', () => {
+    expect(summaryFromCounts({ excused: 9, total: 9 })).toEqual({
+      present: 0,
+      absent: 0,
+      late: 0,
+      excused: 9,
+      total: 9,
+      rate: 0,
+      counted: 0,
+    });
+  });
+
+  it('still penalises countable absences alongside excused', () => {
+    expect(summaryFromCounts({ present: 1, absent: 1, excused: 8, total: 10 })).toEqual({
+      present: 1,
+      absent: 1,
+      late: 0,
+      excused: 8,
+      total: 10,
+      rate: 50,
+      counted: 2,
+    });
+  });
+
+  it('counts late as a present flag rather than a separate status', () => {
+    expect(
+      countsFromAttendanceRows([
+        { status: 'present', late: false },
+        { status: 'present', late: true },
+        { status: 'late' },
+      ])
+    ).toEqual({ present: 1, absent: 0, late: 2, excused: 0 });
+    expect(summaryFromCounts({ present: 1, late: 2, absent: 1, total: 4 })).toEqual({
+      present: 1,
+      absent: 1,
+      late: 2,
+      excused: 0,
+      total: 4,
+      rate: 75,
+      counted: 4,
+    });
   });
 });
 

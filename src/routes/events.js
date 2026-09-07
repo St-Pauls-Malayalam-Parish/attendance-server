@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import mongoose from 'mongoose';
 import { Event } from '../models/Event.js';
 import { Attendance } from '../models/Attendance.js';
 import { requireAuth, requireAdmin, requireApproved, requireFullSession } from '../middleware/auth.js';
@@ -10,6 +11,10 @@ import {
   buildPaginationMeta,
   parsePagination,
 } from '../utils/event-query.js';
+import {
+  findEventIdsByMemberAttendance,
+  parseRosterAttendanceFilter,
+} from '../utils/roster-attendance-filter.js';
 
 const router = Router();
 const EVENT_TYPES = ['practice', 'service', 'concert', 'other'];
@@ -57,6 +62,24 @@ router.get('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ error });
   }
 
+  const memberId = typeof req.query.memberId === 'string' ? req.query.memberId.trim() : '';
+  const attendanceStatus = parseRosterAttendanceFilter(req.query.attendanceStatus);
+
+  if (attendanceStatus && !memberId) {
+    return res.status(400).json({ error: 'Choose a member to filter by attendance status' });
+  }
+
+  if (memberId) {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can filter events by member attendance' });
+    }
+    if (!mongoose.isValidObjectId(memberId)) {
+      return res.status(400).json({ error: 'Invalid member' });
+    }
+    const eventIds = await findEventIdsByMemberAttendance(memberId, attendanceStatus);
+    filter._id = { $in: eventIds };
+  }
+
   const { page, pageSize, skip } = parsePagination(req.query);
   const [total, totalUnfiltered, events] = await Promise.all([
     Event.countDocuments(filter),
@@ -67,7 +90,11 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json({
     events: events.map(serializeEvent),
     pagination: buildPaginationMeta({ page, pageSize, total }),
-    meta: { totalUnfiltered },
+    meta: {
+      totalUnfiltered,
+      memberId,
+      attendanceStatus,
+    },
   });
 }));
 

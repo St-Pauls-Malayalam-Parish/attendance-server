@@ -46,6 +46,7 @@ describe('attendance routes', () => {
           {
             event,
             status: 'present',
+            late: true,
             notes: '',
           },
         ],
@@ -55,7 +56,28 @@ describe('attendance routes', () => {
     const res = await request(createApp()).get('/api/attendance/me').set(authHeader(member));
     expect(res.status).toBe(200);
     expect(res.body.history).toHaveLength(1);
-    expect(res.body.summary.rate).toBeGreaterThanOrEqual(0);
+    expect(res.body.history[0].status).toBe('late');
+    expect(res.body.history[0].late).toBe(true);
+    expect(res.body.summary.rate).toBe(100);
+    expect(res.body.summary.counted).toBe(1);
+  });
+
+  it('does not assign a rate for excused-only history on /me', async () => {
+    User.findById.mockResolvedValue(member);
+    const event = buildEvent({ date: new Date('2020-01-01T10:00:00.000Z') });
+    Event.countDocuments.mockResolvedValue(1);
+    Event.find.mockReturnValue({ sort: () => ({ lean: async () => [event] }) });
+    Attendance.find.mockReturnValue({
+      populate: () => ({
+        lean: async () => [{ event, status: 'excused', notes: '' }],
+      }),
+    });
+
+    const res = await request(createApp()).get('/api/attendance/me').set(authHeader(member));
+    expect(res.status).toBe(200);
+    expect(res.body.summary.excused).toBe(1);
+    expect(res.body.summary.rate).toBe(0);
+    expect(res.body.summary.counted).toBe(0);
   });
 
   it('filters member history by status', async () => {
@@ -130,6 +152,35 @@ describe('attendance routes', () => {
       .send({ records: [{ userId: uid, status: 'present', notes: 'On time' }] });
     expect(res.status).toBe(200);
     expect(res.body.saved).toBe(1);
+  });
+
+  it('saves present attendance with late flag', async () => {
+    User.findById.mockResolvedValue(admin);
+    const event = buildEvent();
+    const uid = userId().toString();
+    Event.findById.mockResolvedValue(event);
+    User.countDocuments.mockResolvedValue(1);
+    Attendance.bulkWrite.mockResolvedValue({});
+
+    const res = await request(createApp())
+      .put(`/api/attendance/event/${event._id}`)
+      .set(authHeader(admin))
+      .send({ records: [{ userId: uid, status: 'present', late: true, notes: 'Traffic' }] });
+
+    expect(res.status).toBe(200);
+    expect(Attendance.bulkWrite).toHaveBeenCalledWith([
+      expect.objectContaining({
+        updateOne: expect.objectContaining({
+          update: {
+            $set: expect.objectContaining({
+              status: 'present',
+              late: true,
+              notes: 'Traffic',
+            }),
+          },
+        }),
+      }),
+    ]);
   });
 
   it('validates attendance writes', async () => {
@@ -214,7 +265,8 @@ describe('attendance routes', () => {
 
     const res = await request(createApp()).get(`/api/attendance/event/${event._id}`).set(authHeader(admin));
     expect(res.status).toBe(200);
-    expect(res.body.roster[0].status).toBe('late');
+    expect(res.body.roster[0].status).toBe('present');
+    expect(res.body.roster[0].late).toBe(true);
     expect(res.body.roster[0].notes).toBe('Traffic');
   });
 

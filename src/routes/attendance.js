@@ -7,10 +7,16 @@ import { requireAuth, requireAdmin, requireFullSession, approvedMemberFilter } f
 import { asyncHandler } from '../utils/async-handler.js';
 import { audit } from '../logger.js';
 import { buildEventFilter, buildPaginationMeta, parsePagination } from '../utils/event-query.js';
+import { summaryFromStatusRows } from '../utils/attendance-stats.js';
+import {
+  MEMBER_STATUS_FILTERS,
+  displayAttendanceStatus,
+  isLateArrival,
+  normalizeAttendanceInput,
+  serializeRosterAttendance,
+} from '../utils/attendance-status.js';
 
 const router = Router();
-const STATUSES = ['present', 'absent', 'late', 'excused'];
-const MEMBER_STATUSES = [...STATUSES, 'upcoming', 'unmarked'];
 
 router.use(requireAuth, requireFullSession);
 
@@ -19,7 +25,9 @@ function serializeRecord(record) {
   const event = record.event;
   return {
     id: record._id.toString(),
-    status: record.status,
+    status: displayAttendanceStatus(record),
+    late: isLateArrival(record),
+    attendanceStatus: record.status === 'late' ? 'present' : record.status,
     notes: record.notes || '',
     user: user && typeof user === 'object'
       ? { id: user._id.toString(), name: user.name, voicePart: user.voicePart }
@@ -37,29 +45,15 @@ function serializeRecord(record) {
 }
 
 function summaryFromRecords(records) {
-  const counts = { present: 0, absent: 0, late: 0, excused: 0 };
-  for (const record of records) {
-    counts[record.status] += 1;
-  }
-  const counted = counts.present + counts.absent + counts.late;
-  const rate = counted === 0 ? 0 : Math.round(((counts.present + counts.late) / counted) * 100);
-  return { ...counts, total: records.length, rate };
+  return summaryFromStatusRows(records);
 }
 
 function summaryFromHistory(history) {
-  const counts = { present: 0, absent: 0, late: 0, excused: 0 };
-  for (const item of history) {
-    if (Object.prototype.hasOwnProperty.call(counts, item.status)) {
-      counts[item.status] += 1;
-    }
-  }
-  const counted = counts.present + counts.absent + counts.late;
-  const rate = counted === 0 ? 0 : Math.round(((counts.present + counts.late) / counted) * 100);
-  return { ...counts, total: history.length, rate };
+  return summaryFromStatusRows(history);
 }
 
 function parseStatusFilter(value) {
-  if (typeof value !== 'string' || !MEMBER_STATUSES.includes(value)) {
+  if (typeof value !== 'string' || !MEMBER_STATUS_FILTERS.includes(value)) {
     return '';
   }
   return value;
@@ -67,7 +61,10 @@ function parseStatusFilter(value) {
 
 function resolveAttendanceStatus(event, record) {
   const upcoming = new Date(event.date) > new Date();
-  return record?.status ?? (upcoming ? 'upcoming' : 'unmarked');
+  if (!record) {
+    return upcoming ? 'upcoming' : 'unmarked';
+  }
+  return displayAttendanceStatus(record);
 }
 
 function serializeHistoryEvent(event) {
@@ -119,6 +116,7 @@ router.get('/me', asyncHandler(async (req, res) => {
     return {
       event: serializeHistoryEvent(event),
       status: resolveAttendanceStatus(event, record),
+      late: record ? isLateArrival(record) : false,
       notes: record?.notes || '',
     };
   });
@@ -183,7 +181,7 @@ router.get('/event/:eventId', requireAdmin, asyncHandler(async (req, res) => {
     .lean();
   const records = await Attendance.find({ event: eventId }).lean();
   const byUser = new Map(
-    records.map((record) => [record.user.toString(), { status: record.status, notes: record.notes || '' }])
+    records.map((record) => [record.user.toString(), serializeRosterAttendance(record)])
   );
 
   res.json({
@@ -203,6 +201,7 @@ router.get('/event/:eventId', requireAdmin, asyncHandler(async (req, res) => {
         email: member.email,
         voicePart: member.voicePart,
         status: record?.status ?? '',
+        late: record?.late ?? false,
         notes: record?.notes ?? '',
       };
     }),
@@ -227,7 +226,11 @@ router.put('/event/:eventId', requireAdmin, asyncHandler(async (req, res) => {
 
   const ops = [];
   for (const row of records) {
-    if (!mongoose.isValidObjectId(row.userId) || !STATUSES.includes(row.status)) {
+    if (!mongoose.isValidObjectId(row.userId)) {
+      return res.status(400).json({ error: 'Each row needs a member and a valid status' });
+    }
+    const normalized = normalizeAttendanceInput({ status: row.status, late: row.late });
+    if (!normalized) {
       return res.status(400).json({ error: 'Each row needs a member and a valid status' });
     }
     const notes = typeof row.notes === 'string' ? row.notes.trim().slice(0, 500) : '';
@@ -236,7 +239,8 @@ router.put('/event/:eventId', requireAdmin, asyncHandler(async (req, res) => {
         filter: { user: row.userId, event: eventId },
         update: {
           $set: {
-            status: row.status,
+            status: normalized.status,
+            late: normalized.late,
             notes,
             markedBy: req.user._id,
           },

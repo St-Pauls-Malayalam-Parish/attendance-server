@@ -331,8 +331,9 @@ describe('members routes', () => {
     expect(res.status).toBe(400);
   });
 
-  it('filters roster by search, voice part, and date range', async () => {
+  it('filters roster by search, voice part, date range, and attendance status', async () => {
     const member = buildUser({ voicePart: 'soprano' });
+    const memberId = member._id;
     User.countDocuments.mockResolvedValueOnce(1).mockResolvedValueOnce(5);
     User.find.mockReturnValue({
       select: () => ({
@@ -343,16 +344,70 @@ describe('members routes', () => {
         }),
       }),
     });
+    Attendance.aggregate.mockResolvedValue([{ _id: memberId }]);
     aggregateAttendanceByUsers.mockResolvedValue(
-      new Map([[member._id.toString(), { present: 2, absent: 0, late: 0, excused: 0, total: 2 }]])
+      new Map([[member._id.toString(), { present: 2, absent: 0, late: 1, excused: 0, total: 2 }]])
     );
 
     const res = await request(createApp())
-      .get('/api/members/roster?search=evan&voicePart=soprano&from=2026-01-01&to=2026-01-31')
+      .get(
+        '/api/members/roster?search=evan&voicePart=soprano&from=2026-01-01&to=2026-01-31&attendanceStatus=late'
+      )
       .set(authHeader(admin));
 
     expect(res.status).toBe(200);
+    expect(Attendance.aggregate).toHaveBeenCalled();
     expect(res.body.members[0].summary.present).toBe(2);
     expect(res.body.meta.dateFiltered).toBe(true);
+    expect(res.body.meta.attendanceStatus).toBe('late');
+  });
+
+  it('filters roster by excused attendance status', async () => {
+    const member = buildUser({ voicePart: 'tenor' });
+    User.countDocuments.mockResolvedValueOnce(1).mockResolvedValueOnce(5);
+    User.find.mockReturnValue({
+      select: () => ({
+        sort: () => ({
+          skip: () => ({
+            limit: () => ({ lean: async () => [member] }),
+          }),
+        }),
+      }),
+    });
+    Attendance.aggregate.mockResolvedValue([{ _id: member._id }]);
+    aggregateAttendanceByUsers.mockResolvedValue(
+      new Map([[member._id.toString(), { present: 0, absent: 0, late: 0, excused: 1, total: 1 }]])
+    );
+
+    const res = await request(createApp())
+      .get('/api/members/roster?attendanceStatus=excused')
+      .set(authHeader(admin));
+
+    expect(res.status).toBe(200);
+    expect(res.body.members[0].summary.excused).toBe(1);
+    expect(res.body.meta.attendanceStatus).toBe('excused');
+  });
+
+  it('ignores invalid roster attendance status values', async () => {
+    const member = buildUser();
+    User.countDocuments.mockResolvedValueOnce(1).mockResolvedValueOnce(5);
+    User.find.mockReturnValue({
+      select: () => ({
+        sort: () => ({
+          skip: () => ({
+            limit: () => ({ lean: async () => [member] }),
+          }),
+        }),
+      }),
+    });
+    aggregateAttendanceByUsers.mockResolvedValue(new Map());
+
+    const res = await request(createApp())
+      .get('/api/members/roster?attendanceStatus=upcoming')
+      .set(authHeader(admin));
+
+    expect(res.status).toBe(200);
+    expect(Attendance.aggregate).not.toHaveBeenCalled();
+    expect(res.body.meta.attendanceStatus).toBe('');
   });
 });

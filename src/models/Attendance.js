@@ -6,9 +6,10 @@ const attendanceSchema = new mongoose.Schema(
     event: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', required: true },
     status: {
       type: String,
-      enum: ['present', 'absent', 'late', 'excused'],
+      enum: ['present', 'absent', 'excused', 'late'],
       required: true,
     },
+    late: { type: Boolean, default: false },
     notes: { type: String, trim: true, default: '', maxlength: 500 },
     markedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   },
