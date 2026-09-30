@@ -8,6 +8,19 @@ Node.js / Express REST API with MongoDB for the parish choir attendance applicat
 | **Frontend** | [attendance-application](https://github.com/St-Pauls-Malayalam-Parish/attendance-application) |
 | **Live API** | Your Render service URL (e.g. `https://attendance-server.onrender.com`) |
 | **Live app** | [GitHub Pages](https://st-pauls-malayalam-parish.github.io/attendance-application/) |
+| **Author** | Rigin Oommen \<riginoommen@gmail.com\> |
+
+## Documentation
+
+| Document | What it covers |
+| --- | --- |
+| This README | Operations, environment, API reference, deploy |
+| [docs/architecture.md](docs/architecture.md) | Boot, request pipeline, auth, data model, and deploy diagrams |
+| [docs/end-to-end.md](docs/end-to-end.md) | Register, approve, attendance, export, profile, and FAQ as HTTP sequences |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to change the API and open a pull request |
+| [LICENSE](LICENSE) | Apache License 2.0 |
+| Swagger UI | `http://localhost:4000/api/docs` while the API is running |
+| OpenAPI document | `GET /api/openapi.json` |
 
 ---
 
@@ -40,8 +53,9 @@ The API powers:
 
 - **Member sign-in** and self-registration (with admin approval)
 - **Event management** (practices, services, concerts)
-- **Attendance tracking** per event and per member
-- **Roster and statistics** for choir admins
+- **Attendance tracking** per event and per member, including PDF and Excel export
+- **Roster, account admin, and singer feedback** for choir admins
+- **FAQs** for singers and admins
 
 ```
 ┌─────────────────────┐     HTTPS      ┌─────────────────────┐
@@ -100,13 +114,14 @@ Sign in with **username** (not email).
 
 | Task | Where in the app |
 | --- | --- |
-| Approve / decline sign-ups | Admin → Members → Waiting for approval |
-| Add a singer manually | Admin → Members → **Add member** |
-| Edit voice part or reset password | Admin → Members → **Edit** on roster row |
-| Deactivate someone (leave choir) | Admin → Members → **Deactivate** |
+| Approve / decline sign-ups | Admin → Members → **Manage** → Approvals |
+| Add a singer manually | Admin → Members → **Manage** → **Add member** |
+| Edit an account, reset a password, deactivate, or delete | Admin → Members → **Manage** → Members → **Manage** on the row |
+| Record voice range, pathway, or notes | Admin → Members → **Roster** → **Feedback**, or open the name |
+| Give admin access, and choose if they still sing | Admin → Members → **Manage** → edit role |
 | Create practice or service | Admin → Events → **Add event** |
 | Mark attendance | Admin → Attendance → pick event → save roster |
-| Review attendance rates | Admin → Members → Roster (filter by date range) |
+| Review attendance rates and export | Admin → Members → **Roster** (filters, then **Export**) |
 
 ### Attendance rate formula
 
@@ -190,14 +205,19 @@ server/
 │   ├── models/
 │   │   ├── User.js
 │   │   ├── Event.js
-│   │   └── Attendance.js
+│   │   ├── Attendance.js
+│   │   └── Faq.js
 │   ├── routes/
 │   │   ├── auth.js
 │   │   ├── events.js
 │   │   ├── attendance.js
 │   │   ├── members.js
+│   │   ├── faqs.js
 │   │   └── health.js
-│   └── utils/                # Validation, pagination, stats, dates
+│   ├── openapi/
+│   │   ├── openapi.json      # OpenAPI 3 document
+│   │   └── docs.js           # Swagger UI and /api/openapi.json
+│   └── utils/                # Validation, pagination, stats, exports, profiles
 ├── tests/
 │   ├── setup.js              # Global test env + mongoose/model mocks
 │   ├── helpers/              # Fixtures, model mocks, mongoose mock
@@ -210,8 +230,14 @@ server/
 ├── data/
 │   ├── members.sample.json   # Import template
 │   └── members.json          # Your roster (not committed if private)
+├── docs/
+│   ├── architecture.md       # Diagrams
+│   └── end-to-end.md         # Cross-route journeys
 ├── docker-compose.yml        # Local MongoDB
 ├── vitest.config.js          # Test runner + coverage thresholds
+├── CONTRIBUTING.md
+├── LICENSE                   # Apache License 2.0
+├── NOTICE
 ├── .env.example
 └── package.json
 ```
@@ -294,9 +320,10 @@ mongodb+srv://user:pass@cluster.mongodb.net/choir
 
 | Collection | Mongoose model | Purpose |
 | --- | --- | --- |
-| `users` | `User` | Admins and members |
+| `users` | `User` | Admins and members, including profile history |
 | `events` | `Event` | Practices, services, concerts |
 | `attendances` | `Attendance` | Per-user per-event status |
+| `faqs` | `Faq` | Help articles for singers, admins, or both |
 
 ---
 
@@ -345,9 +372,12 @@ The access JWT includes a `scope` derived from the user's current state:
 | `GET /api/auth/me`, `change-password`, `logout`, `refresh` | ✓ | ✓ | ✓ | ✓ |
 | `GET /api/events/*` | ✗ | ✗ | ✓ | ✓ |
 | `POST/PATCH/DELETE /api/events` | ✗ | ✗ | ✗ | ✓ |
-| `GET /api/attendance/me` | ✗ | ✗ | ✓ | ✓ |
+| `GET /api/attendance/me` and `/me/export` | ✗ | ✗ | ✓ | ✓ |
 | `GET/PUT /api/attendance/*` (admin) | ✗ | ✗ | ✗ | ✓ |
 | `/api/members/*` | ✗ | ✓* | ✗ | ✓ |
+| `GET /api/auth/my-profile` | ✗ | ✗ | ✓ | ✗ |
+| `GET /api/faqs` | ✗ | ✗ | ✓ | ✓ |
+| `POST/PATCH/DELETE /api/faqs` | ✗ | ✗ | ✗ | ✓ |
 
 \* Admins with `mustChangePassword` can still manage members (member routes skip `requireFullSession`) but cannot take attendance until password is changed.
 
@@ -382,6 +412,15 @@ Typical first-login path after seed or bulk import:
 Base URL: `/api`  
 All JSON request/response bodies unless noted.  
 Errors: `{ "error": "message" }` with appropriate HTTP status.
+
+The same contract is published as OpenAPI 3 and rendered with Swagger UI:
+
+| | URL |
+| --- | --- |
+| Swagger UI | `http://localhost:4000/api/docs` |
+| OpenAPI JSON | `http://localhost:4000/api/openapi.json` |
+
+Both are public (no sign-in). To try a protected route from Swagger, call **Auth / Sign in** with the header `X-Auth-Client: bearer`, copy `token` from the response, and paste it into **Authorize**. Leave that header off when you want the httpOnly cookie session instead. The source file is `src/openapi/openapi.json`.
 
 ### Health
 
@@ -475,6 +514,7 @@ Revokes refresh token and clears cookies. **200:** `{ "ok": true }`
   "username": "evan.thomas",
   "email": "evan@stpauls.parish",
   "role": "member",
+  "onRoster": true,
   "voicePart": "tenor",
   "active": true,
   "approvalStatus": "approved",
@@ -483,6 +523,7 @@ Revokes refresh token and clears cookies. **200:** `{ "ok": true }`
 ```
 
 `role`: `member` | `admin`  
+`onRoster`: always `true` for a member. For an admin, `true` means they still sing and appear in take-attendance.  
 `approvalStatus`: `pending` | `approved` | `rejected`
 
 ---
@@ -648,6 +689,17 @@ Unmarked members have `status: ""`.
 
 **200:** `{ "ok": true, "saved": 41 }`
 
+#### `GET /api/attendance/me/export`
+
+**Member.** Same filters as `GET /api/attendance/me`, including `eventId` (which ignores `from` and `to`).
+
+| Query | Values |
+| --- | --- |
+| `format` | `pdf` or `xlsx` (required) |
+| `fields` | Optional column ids: `date`, `event`, `type`, `color`, `status`, `notes` |
+
+**200:** file download, `Content-Disposition: attachment`. Filename `st-pauls-my-attendance-YYYY-MM-DD.pdf` or `.xlsx`.
+
 ---
 
 ### Members (admin only)
@@ -664,9 +716,12 @@ Lists non-roster members.
 {
   "pending": [ { ...member } ],
   "inactive": [ { ...member } ],
-  "declined": [ { ...member } ]
+  "declined": [ { ...member } ],
+  "admins": [ { ...account, "onRoster": true } ]
 }
 ```
+
+`admins` includes every admin account. `onRoster` is true when that admin still sings.
 
 #### `GET /api/members/roster`
 
@@ -676,7 +731,9 @@ Approved active members with attendance statistics.
 | --- | --- |
 | `search` | Name, username, or email |
 | `voicePart` | Filter by voice |
-| `from`, `to` | Date range for stats (`YYYY-MM-DD`) |
+| `from`, `to` | Date range for stats (`YYYY-MM-DD`). Ignored when `eventId` is set |
+| `eventId` | Stats and status for one event |
+| `attendanceStatus` | Keep singers with that mark |
 | `page`, `limit` | Pagination |
 
 **200:**
@@ -701,19 +758,50 @@ Approved active members with attendance statistics.
 }
 ```
 
+#### `GET /api/members/roster/export`
+
+**Admin.** Same filters as the roster, without pagination. Returns every matching row.
+
+| Query | Values |
+| --- | --- |
+| `format` | `pdf` or `xlsx` (required) |
+| `fields` | Optional column ids: `name`, `username`, `email`, `voice`, `range`, `pathway`, `role`, plus `rate` and `detail` or `status` |
+
+**200:** file download. Filename `st-pauls-choir-roster-YYYY-MM-DD.pdf` or `.xlsx`.
+
 #### `POST /api/members`
 
 Create an approved member.
 
-**Body:** `{ "name", "username", "email", "password", "voicePart?" }`
+**Body:** `{ "name", "username", "email", "password", "voicePart?", "role?", "onRoster?" }`
+
+`role` defaults to `member`. An admin may be created with `onRoster: false` so they do not sing.
 
 **201:** `{ "member": { ... } }`
 
 #### `PATCH /api/members/:id`
 
-Update member. Optional `password` resets password and sets `mustChangePassword: true`.
+Update an account. Fields: `name`, `username`, `email`, `voicePart`, `password`, `role` (`member` or `admin`), `onRoster`.
+
+Optional `password` resets the password and sets `mustChangePassword: true`. Demoting the last admin returns 400. Promoting someone to admin approves and reactivates the account. Omitting `onRoster` keeps the current value.
 
 **200:** `{ "member": { ... } }`
+
+#### `GET /api/members/:id/profile`
+
+**Admin.** Voice range, choir pathway, and feedback history for one choir participant.
+
+**200:** `{ "member": { "id", "name", "username", "voicePart" }, "profile": { ... } }`
+
+#### `PATCH /api/members/:id/profile`
+
+**Admin.** Send any of `voiceRange` (max 200), `feedback` (max 2000), `choirPathway`.
+
+`choirPathway`: `lead-vocalists`, `emerging-vocalists`, `vocal-strengthening`, `vocal-development`, `explore-other-service`.
+
+Each value is appended to that history with the admin's name and the time.
+
+**200:** same shape as GET.
 
 #### `PATCH /api/members/:id/approval`
 
@@ -729,6 +817,50 @@ Permanently deletes member and all attendance. **200:** `{ "ok": true }`
 
 ---
 
+### Singer profile
+
+#### `GET /api/auth/my-profile`
+
+**Approved member** with a full session. Admins receive 403; they use `/api/members/:id/profile`.
+
+**200:** `{ "profile": { "voiceRange", "choirPathway", "voiceRangeHistory", "feedbackHistory", "pathwayHistory" } }`
+
+---
+
+### FAQs
+
+**Read:** full session and approved. **Write:** admin.
+
+Audience is `member`, `admin`, or `both`. A singer sees published `member` and `both`. An admin reading normally sees published `admin` and `both`.
+
+#### `GET /api/faqs`
+
+| Query | Who | Effect |
+| --- | --- | --- |
+| _(none)_ | Singer or admin | Published FAQs for that role |
+| `manage=true` | Admin | Every FAQ, including drafts |
+| `audience` | Admin | Narrow the published list |
+
+**200:** `{ "faqs": [ { "id", "question", "answer", "audience", "sortOrder", "published", "createdAt", "updatedAt" } ] }`
+
+#### `POST /api/faqs`
+
+**Admin.** **Body:** `{ "question", "answer", "audience", "sortOrder?", "published?" }`
+
+Question max 300 characters. Answer max 5000. Answers are plain text.
+
+**201:** `{ "faq": { ... } }`
+
+#### `PATCH /api/faqs/:id`
+
+**Admin.** Same fields as create. **200:** `{ "faq": { ... } }`
+
+#### `DELETE /api/faqs/:id`
+
+**Admin.** **200:** `{ "ok": true }`
+
+---
+
 ## Data models
 
 ### User
@@ -740,7 +872,11 @@ Permanently deletes member and all attendance. **200:** `{ "ok": true }`
 | `email` | String | Unique, lowercase |
 | `passwordHash` | String | bcrypt; never exposed |
 | `role` | String | `member` (default) or `admin` |
+| `onRoster` | Boolean | Members are always on the singing roster. Admins only when this is true |
 | `voicePart` | String | `soprano`, `alto`, `tenor`, `bass`, `other` |
+| `voiceRange` | String | Max 200. Current value; history is `voiceRangeHistory` |
+| `choirPathway` | String | One of the five pathway ids, or empty. History is `pathwayHistory` |
+| `feedbackHistory` | Array | Append-only notes, max 2000 characters each |
 | `active` | Boolean | Default `true` |
 | `approvalStatus` | String | `pending`, `approved`, `rejected` |
 | `mustChangePassword` | Boolean | Forces password change on login |
@@ -759,6 +895,17 @@ Permanently deletes member and all attendance. **200:** `{ "ok": true }`
 | `createdBy` | ObjectId → User | Required |
 
 Index: `{ date: -1 }`
+
+### FAQ
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `question` | String | Required, max 300 |
+| `answer` | String | Required, max 5000, plain text |
+| `audience` | String | `member`, `admin`, `both` |
+| `sortOrder` | Number | Default 0 |
+| `published` | Boolean | Default true |
+| `createdBy` | ObjectId → User | Required |
 
 ### Attendance
 
@@ -881,10 +1028,11 @@ Set `LOG_LEVEL=debug` locally; `info` in production.
 
 On `SIGTERM` or `SIGINT` (Render deploy, Ctrl+C):
 
-1. New requests → **503** `Server is shutting down`
-2. In-flight HTTP requests drain
-3. MongoDB disconnects
-4. Process exits — or force-kills after `SHUTDOWN_TIMEOUT_MS` (default 10s)
+1. `attachGracefulShutdown` stops accepting new connections and drains in-flight HTTP requests
+2. MongoDB disconnects
+3. The process exits, or is force-killed after `SHUTDOWN_TIMEOUT_MS` (default 10s)
+
+`createApp({ getIsShuttingDown })` can answer in-flight arrivals with **503** `Server is shutting down`. The current `src/index.js` boot path does not pass that flag, so the drain and disconnect still run and the 503 response does not.
 
 ---
 
@@ -1090,7 +1238,7 @@ After pushing, open the repo on GitHub → **Actions** → **Server tests** to v
 4. Mount the router in `src/app.js` (not `index.js`)
 5. Add `audit()` calls for admin writes
 6. Add route tests under `tests/routes/` using `createApp()` and model mocks
-7. Document the endpoint in this README
+7. Document the endpoint in this README, in `src/openapi/openapi.json`, and, if the journey changed, in `docs/end-to-end.md`
 
 ### Adding tests
 
@@ -1118,4 +1266,6 @@ git remote set-url origin https://github.com/St-Pauls-Malayalam-Parish/attendanc
 
 ## License
 
-Private parish project. All rights reserved by St Paul's Malayalam Parish, Pune.
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Copyright 2026 St Paul's Malayalam Parish, Pune.

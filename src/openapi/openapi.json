@@ -1,0 +1,1591 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "St Paul's choir attendance API",
+    "version": "1.0.0",
+    "description": "REST API for choir events, attendance, members, feedback, and FAQs. Local apps authenticate with httpOnly cookies. Send header X-Auth-Client: bearer on sign-in to receive token and refreshToken in JSON, then use Authorize in this UI.",
+    "contact": {
+      "name": "Rigin Oommen",
+      "email": "riginoommen@gmail.com"
+    },
+    "license": {
+      "name": "Apache-2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0"
+    }
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "The server hosting this document"
+    }
+  ],
+  "tags": [
+    { "name": "Health", "description": "Process and database status" },
+    { "name": "Auth", "description": "Register, sign in, session, and password" },
+    { "name": "Events", "description": "Practices, services, and concerts" },
+    { "name": "Attendance", "description": "Marks for one event or a singer's history" },
+    { "name": "Members", "description": "Roster, accounts, and singer feedback. Admin only." },
+    { "name": "FAQs", "description": "Help articles" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Access token from a response that included X-Auth-Client: bearer."
+      },
+      "accessCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "token",
+        "description": "httpOnly access cookie set by login, refresh, and change-password when X-Auth-Client is omitted."
+      }
+    },
+    "parameters": {
+      "BearerClient": {
+        "name": "X-Auth-Client",
+        "in": "header",
+        "required": false,
+        "schema": { "type": "string", "enum": ["bearer"] },
+        "description": "Send bearer to receive token and refreshToken in the JSON body."
+      },
+      "Page": {
+        "name": "page",
+        "in": "query",
+        "schema": { "type": "integer", "minimum": 1, "default": 1 }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 10 }
+      },
+      "Search": {
+        "name": "search",
+        "in": "query",
+        "schema": { "type": "string" }
+      },
+      "From": {
+        "name": "from",
+        "in": "query",
+        "schema": { "type": "string", "format": "date" },
+        "description": "YYYY-MM-DD. Ignored when eventId is set."
+      },
+      "To": {
+        "name": "to",
+        "in": "query",
+        "schema": { "type": "string", "format": "date" },
+        "description": "YYYY-MM-DD. Ignored when eventId is set."
+      },
+      "EventType": {
+        "name": "type",
+        "in": "query",
+        "schema": { "$ref": "#/components/schemas/EventType" }
+      },
+      "LiturgicalColorQuery": {
+        "name": "liturgicalColor",
+        "in": "query",
+        "schema": { "type": "string" },
+        "description": "white, green, purple, red, black, or __none__ for events with no color."
+      },
+      "Year": {
+        "name": "year",
+        "in": "query",
+        "schema": { "type": "integer" }
+      },
+      "EventId": {
+        "name": "eventId",
+        "in": "query",
+        "schema": { "$ref": "#/components/schemas/ObjectId" }
+      },
+      "Id": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/ObjectId" }
+      },
+      "EventPathId": {
+        "name": "eventId",
+        "in": "path",
+        "required": true,
+        "schema": { "$ref": "#/components/schemas/ObjectId" }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "The request body or query is not valid.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Sign-in is missing or the session expired.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "The account cannot perform this action yet, or the role is wrong.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "No matching record.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "Conflict": {
+        "description": "Username or email is already in use.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Auth rate limit: 30 requests per 15 minutes per IP.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string" }
+        }
+      },
+      "Ok": {
+        "type": "object",
+        "required": ["ok"],
+        "properties": {
+          "ok": { "type": "boolean", "enum": [true] }
+        }
+      },
+      "ObjectId": {
+        "type": "string",
+        "pattern": "^[a-fA-F0-9]{24}$",
+        "example": "64f1a2b3c4d5e6f7a8b9c0d1"
+      },
+      "VoicePart": {
+        "type": "string",
+        "enum": ["soprano", "alto", "tenor", "bass", "other"]
+      },
+      "ChoirVoicePart": {
+        "type": "string",
+        "description": "Voice part accepted when creating an account. other remains on older records.",
+        "enum": ["soprano", "alto", "tenor", "bass"]
+      },
+      "Role": {
+        "type": "string",
+        "enum": ["member", "admin"]
+      },
+      "ApprovalStatus": {
+        "type": "string",
+        "enum": ["pending", "approved", "rejected"]
+      },
+      "EventType": {
+        "type": "string",
+        "enum": ["practice", "service", "concert", "other"]
+      },
+      "LiturgicalColor": {
+        "type": "string",
+        "enum": ["white", "green", "purple", "red", "black", ""]
+      },
+      "AttendanceStatus": {
+        "type": "string",
+        "description": "late is accepted on write and shown on read. Stored rows use present plus late: true.",
+        "enum": ["present", "absent", "late", "excused", ""]
+      },
+      "HistoryStatusFilter": {
+        "type": "string",
+        "enum": ["present", "absent", "late", "excused", "upcoming", "unmarked"]
+      },
+      "ChoirPathway": {
+        "type": "string",
+        "enum": [
+          "lead-vocalists",
+          "emerging-vocalists",
+          "vocal-strengthening",
+          "vocal-development",
+          "explore-other-service"
+        ]
+      },
+      "FaqAudience": {
+        "type": "string",
+        "enum": ["member", "admin", "both"]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/ObjectId" },
+          "name": { "type": "string" },
+          "username": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "role": { "$ref": "#/components/schemas/Role" },
+          "onRoster": {
+            "type": "boolean",
+            "description": "Always true for a member. True for an admin who still sings."
+          },
+          "voicePart": { "$ref": "#/components/schemas/VoicePart" },
+          "active": { "type": "boolean" },
+          "approvalStatus": { "$ref": "#/components/schemas/ApprovalStatus" },
+          "mustChangePassword": { "type": "boolean" }
+        }
+      },
+      "AuthSession": {
+        "type": "object",
+        "required": ["user"],
+        "properties": {
+          "user": { "$ref": "#/components/schemas/User" },
+          "token": {
+            "type": "string",
+            "description": "Present when X-Auth-Client is bearer."
+          },
+          "refreshToken": {
+            "type": "string",
+            "description": "Present when X-Auth-Client is bearer. Send it to /api/auth/refresh."
+          }
+        }
+      },
+      "Pagination": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "pageSize": { "type": "integer" },
+          "total": { "type": "integer" },
+          "totalPages": { "type": "integer" },
+          "rangeStart": { "type": "integer" },
+          "rangeEnd": { "type": "integer" },
+          "hasPrevious": { "type": "boolean" },
+          "hasNext": { "type": "boolean" }
+        }
+      },
+      "AttendanceSummary": {
+        "type": "object",
+        "properties": {
+          "present": { "type": "integer" },
+          "absent": { "type": "integer" },
+          "late": { "type": "integer" },
+          "excused": { "type": "integer" },
+          "total": { "type": "integer" },
+          "rate": {
+            "type": "integer",
+            "description": "round((present + late) / (present + absent + late) * 100). Excused is excluded."
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/ObjectId" },
+          "title": { "type": "string" },
+          "date": { "type": "string", "format": "date-time" },
+          "type": { "$ref": "#/components/schemas/EventType" },
+          "notes": { "type": "string" },
+          "liturgicalColor": { "$ref": "#/components/schemas/LiturgicalColor" }
+        }
+      },
+      "EventWrite": {
+        "type": "object",
+        "required": ["title", "date"],
+        "properties": {
+          "title": { "type": "string" },
+          "date": { "type": "string", "format": "date-time" },
+          "type": { "$ref": "#/components/schemas/EventType" },
+          "notes": { "type": "string" },
+          "liturgicalColor": { "$ref": "#/components/schemas/LiturgicalColor" }
+        }
+      },
+      "Account": {
+        "allOf": [
+          { "$ref": "#/components/schemas/User" },
+          {
+            "type": "object",
+            "properties": {
+              "createdAt": { "type": "string", "format": "date-time" },
+              "voiceRange": { "type": "string" },
+              "choirPathway": { "type": "string" },
+              "summary": { "$ref": "#/components/schemas/AttendanceSummary" }
+            }
+          }
+        ]
+      },
+      "ProfileHistoryEntry": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "recordedAt": { "type": "string", "format": "date-time" },
+          "recordedByName": { "type": "string" }
+        }
+      },
+      "MemberProfile": {
+        "type": "object",
+        "properties": {
+          "voiceRange": { "type": "string", "maxLength": 200 },
+          "choirPathway": { "type": "string" },
+          "voiceRangeHistory": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ProfileHistoryEntry" },
+                { "type": "object", "properties": { "value": { "type": "string" } } }
+              ]
+            }
+          },
+          "feedbackHistory": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ProfileHistoryEntry" },
+                { "type": "object", "properties": { "text": { "type": "string" } } }
+              ]
+            }
+          },
+          "pathwayHistory": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                { "$ref": "#/components/schemas/ProfileHistoryEntry" },
+                {
+                  "type": "object",
+                  "properties": { "pathway": { "$ref": "#/components/schemas/ChoirPathway" } }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Faq": {
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/ObjectId" },
+          "question": { "type": "string", "maxLength": 300 },
+          "answer": { "type": "string", "maxLength": 5000 },
+          "audience": { "$ref": "#/components/schemas/FaqAudience" },
+          "sortOrder": { "type": "number" },
+          "published": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "uptimeSeconds": { "type": "integer" },
+          "database": {
+            "type": "object",
+            "properties": {
+              "connected": { "type": "boolean" },
+              "name": { "type": "string", "nullable": true }
+            }
+          },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check",
+        "operationId": "getHealth",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Database is reachable.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Health" } }
+            }
+          },
+          "503": {
+            "description": "Database is down, or the process is shutting down.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Health" } }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register a singer",
+        "description": "Creates a pending member. The singer cannot use the choir routes until an admin approves the account.",
+        "operationId": "register",
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/BearerClient" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "username", "email", "password", "voicePart"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 2 },
+                  "username": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 32,
+                    "description": "Lowercase letters, numbers, dots, underscores, or hyphens. Must start with a letter or number."
+                  },
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 8, "format": "password" },
+                  "voicePart": { "$ref": "#/components/schemas/ChoirVoicePart" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created. Cookies are set unless X-Auth-Client is bearer.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AuthSession" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Sign in",
+        "operationId": "login",
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/BearerClient" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["username", "password"],
+                "properties": {
+                  "username": { "type": "string" },
+                  "password": { "type": "string", "format": "password" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in. Scope is full, pending, or must-change-password.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AuthSession" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": {
+            "description": "The registration was declined.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Error" } }
+            }
+          },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Rotate the session",
+        "description": "Reads the refreshToken cookie, or the JSON body when using bearer mode. Issues a new access token and a new refresh token.",
+        "operationId": "refreshSession",
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/BearerClient" }],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "refreshToken": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New session.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AuthSession" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Sign out",
+        "description": "Revokes the refresh token and clears cookies.",
+        "operationId": "logout",
+        "security": [],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "refreshToken": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed out.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Current user",
+        "description": "Re-issues the session when the token scope is behind the user record, for example after approval or a password change.",
+        "operationId": "getMe",
+        "parameters": [{ "$ref": "#/components/parameters/BearerClient" }],
+        "responses": {
+          "200": {
+            "description": "Current user. token and refreshToken are included when the session was re-issued and X-Auth-Client is bearer.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AuthSession" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/auth/my-profile": {
+      "get": {
+        "tags": ["Auth"],
+        "summary": "Signed-in singer profile",
+        "description": "Members only. Admins use GET /api/members/{id}/profile.",
+        "operationId": "getMyProfile",
+        "responses": {
+          "200": {
+            "description": "Voice range, pathway, and feedback history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "profile": { "$ref": "#/components/schemas/MemberProfile" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/auth/change-password": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Change password",
+        "description": "Clears mustChangePassword and issues a new full session when the account is otherwise allowed in.",
+        "operationId": "changePassword",
+        "parameters": [{ "$ref": "#/components/parameters/BearerClient" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["currentPassword", "newPassword"],
+                "properties": {
+                  "currentPassword": { "type": "string", "format": "password" },
+                  "newPassword": { "type": "string", "minLength": 8, "format": "password" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Password updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/Ok" },
+                    { "$ref": "#/components/schemas/AuthSession" }
+                  ]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/api/events/years": {
+      "get": {
+        "tags": ["Events"],
+        "summary": "Years that have events",
+        "operationId": "listEventYears",
+        "responses": {
+          "200": {
+            "description": "Distinct years, newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "years": { "type": "array", "items": { "type": "integer" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/events": {
+      "get": {
+        "tags": ["Events"],
+        "summary": "List events",
+        "operationId": "listEvents",
+        "parameters": [
+          { "$ref": "#/components/parameters/Search" },
+          { "$ref": "#/components/parameters/EventType" },
+          { "$ref": "#/components/parameters/LiturgicalColorQuery" },
+          { "$ref": "#/components/parameters/Year" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" },
+          {
+            "name": "memberId",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/ObjectId" },
+            "description": "Admin only. Limit events by this singer's attendance."
+          },
+          {
+            "name": "attendanceStatus",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/HistoryStatusFilter" },
+            "description": "Requires memberId."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Event" }
+                    },
+                    "pagination": { "$ref": "#/components/schemas/Pagination" },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "totalUnfiltered": { "type": "integer" },
+                        "memberId": { "type": "string" },
+                        "attendanceStatus": { "type": "string", "nullable": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["Events"],
+        "summary": "Create an event",
+        "operationId": "createEvent",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/EventWrite" } }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Event created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "event": { "$ref": "#/components/schemas/Event" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/events/{id}": {
+      "patch": {
+        "tags": ["Events"],
+        "summary": "Update an event",
+        "description": "Replaces title, date, type, notes, and liturgical color. Omitted type becomes practice and omitted notes become empty.",
+        "operationId": "updateEvent",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/EventWrite" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated event.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "event": { "$ref": "#/components/schemas/Event" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["Events"],
+        "summary": "Delete an event",
+        "description": "Also deletes attendance rows for the event.",
+        "operationId": "deleteEvent",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/attendance/me": {
+      "get": {
+        "tags": ["Attendance"],
+        "summary": "My attendance history",
+        "operationId": "getMyAttendance",
+        "parameters": [
+          { "$ref": "#/components/parameters/Search" },
+          { "$ref": "#/components/parameters/EventType" },
+          { "$ref": "#/components/parameters/LiturgicalColorQuery" },
+          { "$ref": "#/components/parameters/Year" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/EventId" },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/HistoryStatusFilter" }
+          },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Summary and one page of history. A status filter or eventId rebuilds the summary from those rows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": { "$ref": "#/components/schemas/User" },
+                    "summary": { "$ref": "#/components/schemas/AttendanceSummary" },
+                    "history": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "event": { "$ref": "#/components/schemas/Event" },
+                          "status": { "$ref": "#/components/schemas/AttendanceStatus" },
+                          "late": { "type": "boolean" },
+                          "notes": { "type": "string" }
+                        }
+                      }
+                    },
+                    "pagination": { "$ref": "#/components/schemas/Pagination" },
+                    "meta": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/attendance/me/export": {
+      "get": {
+        "tags": ["Attendance"],
+        "summary": "Export my attendance",
+        "operationId": "exportMyAttendance",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "enum": ["pdf", "xlsx"] }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Comma-separated: date, event, type, color, status, notes. Omit to include every column."
+          },
+          { "$ref": "#/components/parameters/Search" },
+          { "$ref": "#/components/parameters/EventType" },
+          { "$ref": "#/components/parameters/LiturgicalColorQuery" },
+          { "$ref": "#/components/parameters/Year" },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/EventId" },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/HistoryStatusFilter" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF or Excel file for the full filtered history.",
+            "headers": {
+              "Content-Disposition": {
+                "schema": { "type": "string" },
+                "description": "attachment; filename=\"st-pauls-my-attendance-YYYY-MM-DD.pdf\""
+              }
+            },
+            "content": {
+              "application/pdf": {
+                "schema": { "type": "string", "format": "binary" }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/attendance": {
+      "get": {
+        "tags": ["Attendance"],
+        "summary": "List attendance records",
+        "description": "Admin. Optional eventId and userId filters. Not paginated.",
+        "operationId": "listAttendance",
+        "parameters": [
+          { "$ref": "#/components/parameters/EventId" },
+          {
+            "name": "userId",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/ObjectId" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "records": { "type": "array", "items": { "type": "object" } }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/attendance/event/{eventId}": {
+      "get": {
+        "tags": ["Attendance"],
+        "summary": "Roster for one event",
+        "description": "Admin. Active approved singers, plus admins with onRoster true. Unmarked rows have an empty status.",
+        "operationId": "getEventRoster",
+        "parameters": [{ "$ref": "#/components/parameters/EventPathId" }],
+        "responses": {
+          "200": {
+            "description": "Event and roster.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "event": { "$ref": "#/components/schemas/Event" },
+                    "roster": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "$ref": "#/components/schemas/ObjectId" },
+                          "name": { "type": "string" },
+                          "email": { "type": "string" },
+                          "voicePart": { "$ref": "#/components/schemas/VoicePart" },
+                          "status": { "$ref": "#/components/schemas/AttendanceStatus" },
+                          "late": { "type": "boolean" },
+                          "notes": { "type": "string" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "put": {
+        "tags": ["Attendance"],
+        "summary": "Save attendance for one event",
+        "description": "Admin. status may be present, absent, late, or excused. Notes max 500 characters. Singers omitted from records are saved as absent. Rows must be approved roster members.",
+        "operationId": "saveEventAttendance",
+        "parameters": [{ "$ref": "#/components/parameters/EventPathId" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["records"],
+                "properties": {
+                  "records": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["userId", "status"],
+                      "properties": {
+                        "userId": { "$ref": "#/components/schemas/ObjectId" },
+                        "status": { "$ref": "#/components/schemas/AttendanceStatus" },
+                        "late": { "type": "boolean" },
+                        "notes": { "type": "string", "maxLength": 500 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/Ok" },
+                    {
+                      "type": "object",
+                      "properties": { "saved": { "type": "integer" } }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/members": {
+      "get": {
+        "tags": ["Members"],
+        "summary": "Approval queues and admins",
+        "description": "Admin. Available even when the admin still has mustChangePassword set.",
+        "operationId": "listMemberQueues",
+        "responses": {
+          "200": {
+            "description": "Pending, inactive, and declined members, plus every admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "pending": { "type": "array", "items": { "$ref": "#/components/schemas/Account" } },
+                    "inactive": { "type": "array", "items": { "$ref": "#/components/schemas/Account" } },
+                    "declined": { "type": "array", "items": { "$ref": "#/components/schemas/Account" } },
+                    "admins": { "type": "array", "items": { "$ref": "#/components/schemas/Account" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["Members"],
+        "summary": "Create an account",
+        "description": "Admin. New members are approved. role defaults to member.",
+        "operationId": "createMember",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "username", "email", "password"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 2 },
+                  "username": { "type": "string" },
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string", "minLength": 8, "format": "password" },
+                  "voicePart": { "$ref": "#/components/schemas/ChoirVoicePart" },
+                  "role": { "$ref": "#/components/schemas/Role" },
+                  "onRoster": {
+                    "type": "boolean",
+                    "description": "For an admin, false means they do not sing."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "member": { "$ref": "#/components/schemas/User" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/api/members/roster": {
+      "get": {
+        "tags": ["Members"],
+        "summary": "Choir roster with attendance stats",
+        "operationId": "getRoster",
+        "parameters": [
+          { "$ref": "#/components/parameters/Search" },
+          {
+            "name": "voicePart",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/VoicePart" }
+          },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/EventId" },
+          {
+            "name": "attendanceStatus",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/HistoryStatusFilter" }
+          },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of singers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "members": { "type": "array", "items": { "$ref": "#/components/schemas/Account" } },
+                    "pagination": { "$ref": "#/components/schemas/Pagination" },
+                    "meta": { "type": "object" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/members/roster/export": {
+      "get": {
+        "tags": ["Members"],
+        "summary": "Export the roster",
+        "description": "Admin. Same filters as the roster, with every matching row.",
+        "operationId": "exportRoster",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string", "enum": ["pdf", "xlsx"] }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "schema": { "type": "string" },
+            "description": "Comma-separated: name, username, email, voice, range, pathway, role, rate, detail, status."
+          },
+          { "$ref": "#/components/parameters/Search" },
+          {
+            "name": "voicePart",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/VoicePart" }
+          },
+          { "$ref": "#/components/parameters/From" },
+          { "$ref": "#/components/parameters/To" },
+          { "$ref": "#/components/parameters/EventId" },
+          {
+            "name": "attendanceStatus",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/HistoryStatusFilter" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF or Excel file.",
+            "headers": {
+              "Content-Disposition": { "schema": { "type": "string" } }
+            },
+            "content": {
+              "application/pdf": {
+                "schema": { "type": "string", "format": "binary" }
+              },
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": { "type": "string", "format": "binary" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/members/{id}": {
+      "patch": {
+        "tags": ["Members"],
+        "summary": "Update an account",
+        "description": "Admin. A new password sets mustChangePassword. The last admin cannot be demoted. Omitting onRoster keeps the current value.",
+        "operationId": "updateMember",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "username": { "type": "string" },
+                  "email": { "type": "string", "format": "email" },
+                  "voicePart": { "$ref": "#/components/schemas/VoicePart" },
+                  "password": { "type": "string", "minLength": 8, "format": "password" },
+                  "role": { "$ref": "#/components/schemas/Role" },
+                  "onRoster": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "member": { "$ref": "#/components/schemas/User" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      },
+      "delete": {
+        "tags": ["Members"],
+        "summary": "Delete an account",
+        "description": "Admin. Removes the user and their attendance. Does not delete admin accounts through the member-only lookup.",
+        "operationId": "deleteMember",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/members/{id}/profile": {
+      "get": {
+        "tags": ["Members"],
+        "summary": "Singer feedback profile",
+        "operationId": "getMemberProfile",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "Current values and history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "member": { "type": "object" },
+                    "profile": { "$ref": "#/components/schemas/MemberProfile" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["Members"],
+        "summary": "Append feedback",
+        "description": "Admin. Send any of voiceRange (max 200), feedback (max 2000), or choirPathway. Each value is appended to that history.",
+        "operationId": "updateMemberProfile",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "voiceRange": { "type": "string", "maxLength": 200 },
+                  "feedback": { "type": "string", "maxLength": 2000 },
+                  "choirPathway": { "$ref": "#/components/schemas/ChoirPathway" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "member": { "type": "object" },
+                    "profile": { "$ref": "#/components/schemas/MemberProfile" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/members/{id}/approval": {
+      "patch": {
+        "tags": ["Members"],
+        "summary": "Approve or decline a registration",
+        "operationId": "setMemberApproval",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["approvalStatus"],
+                "properties": {
+                  "approvalStatus": { "$ref": "#/components/schemas/ApprovalStatus" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "member": { "$ref": "#/components/schemas/User" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/members/{id}/active": {
+      "patch": {
+        "tags": ["Members"],
+        "summary": "Deactivate or reactivate",
+        "description": "Admin. Deactivated people cannot sign in and drop off take-attendance. History is kept.",
+        "operationId": "setMemberActive",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["active"],
+                "properties": { "active": { "type": "boolean" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated account.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "member": { "$ref": "#/components/schemas/User" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/api/faqs": {
+      "get": {
+        "tags": ["FAQs"],
+        "summary": "List FAQs",
+        "description": "Singers see published member and both. Admins see published admin and both. manage=true returns every FAQ, including drafts.",
+        "operationId": "listFaqs",
+        "parameters": [
+          {
+            "name": "manage",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["true"] },
+            "description": "Admin only. Include unpublished FAQs."
+          },
+          {
+            "name": "audience",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/FaqAudience" },
+            "description": "Admin filter on the published list."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FAQs in sort order.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "faqs": { "type": "array", "items": { "$ref": "#/components/schemas/Faq" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      },
+      "post": {
+        "tags": ["FAQs"],
+        "summary": "Create a FAQ",
+        "operationId": "createFaq",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["question", "answer", "audience"],
+                "properties": {
+                  "question": { "type": "string", "maxLength": 300 },
+                  "answer": { "type": "string", "maxLength": 5000 },
+                  "audience": { "$ref": "#/components/schemas/FaqAudience" },
+                  "sortOrder": { "type": "number" },
+                  "published": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "FAQ created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "faq": { "$ref": "#/components/schemas/Faq" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    },
+    "/api/faqs/{id}": {
+      "patch": {
+        "tags": ["FAQs"],
+        "summary": "Update a FAQ",
+        "operationId": "updateFaq",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "question": { "type": "string", "maxLength": 300 },
+                  "answer": { "type": "string", "maxLength": 5000 },
+                  "audience": { "$ref": "#/components/schemas/FaqAudience" },
+                  "sortOrder": { "type": "number" },
+                  "published": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated FAQ.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "faq": { "$ref": "#/components/schemas/Faq" } }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "delete": {
+        "tags": ["FAQs"],
+        "summary": "Delete a FAQ",
+        "operationId": "deleteFaq",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "Deleted.",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  },
+  "security": [
+    { "bearerAuth": [] },
+    { "accessCookie": [] }
+  ]
+}

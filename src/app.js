@@ -11,6 +11,7 @@ import attendanceRoutes from './routes/attendance.js';
 import memberRoutes from './routes/members.js';
 import faqRoutes from './routes/faqs.js';
 import healthRoutes from './routes/health.js';
+import { mountApiDocs } from './openapi/docs.js';
 
 /**
  * @param {{ getIsShuttingDown?: () => boolean }} options
@@ -41,6 +42,7 @@ export function createApp({ getIsShuttingDown = () => false } = {}) {
   app.use('/api/attendance', attendanceRoutes);
   app.use('/api/members', memberRoutes);
   app.use('/api/faqs', faqRoutes);
+  mountApiDocs(app);
 
   app.use((_req, res) => {
     res.status(404).json({ error: 'Not found' });
