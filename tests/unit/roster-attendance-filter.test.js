@@ -5,13 +5,32 @@ import { Attendance, resetModelMocks } from '../helpers/model-mocks.js';
 import {
   buildAttendanceStatusMongoMatch,
   buildMemberAttendanceMatch,
+  eventAttendanceMatchesFilter,
   findEventIdsByMemberAttendance,
   findUserIdsByAttendanceStatus,
   parseRosterAttendanceFilter,
+  resolveMemberEventAttendance,
 } from '../../src/utils/roster-attendance-filter.js';
 import { eventId, userId } from '../helpers/fixtures.js';
 
 describe('roster-attendance-filter', () => {
+  it('resolves one event attendance, counting an unmarked past event as absent', () => {
+    const past = new Date('2020-01-01T10:00:00.000Z');
+    const future = new Date('2099-01-01T10:00:00.000Z');
+
+    expect(resolveMemberEventAttendance({ status: 'present', late: true }, past)).toEqual({
+      status: 'present',
+      late: true,
+      display: 'late',
+    });
+    expect(resolveMemberEventAttendance({ status: 'excused' }, past).display).toBe('excused');
+    expect(resolveMemberEventAttendance(null, past).display).toBe('absent');
+    expect(resolveMemberEventAttendance(null, future).display).toBe('upcoming');
+    expect(eventAttendanceMatchesFilter({ display: 'late' }, 'present')).toBe(true);
+    expect(eventAttendanceMatchesFilter({ display: 'absent' }, 'present')).toBe(false);
+    expect(eventAttendanceMatchesFilter({ display: 'late' }, 'late')).toBe(true);
+  });
+
   it('parses supported attendance filters', () => {
     expect(parseRosterAttendanceFilter('present')).toBe('present');
     expect(parseRosterAttendanceFilter('late')).toBe('late');

@@ -15,6 +15,7 @@ export function buildUser(overrides = {}) {
     email: 'evan@stpauls.parish',
     passwordHash: '$2a$12$hashedpasswordvalue',
     role: 'member',
+    onRoster: true,
     voicePart: 'tenor',
     active: true,
     approvalStatus: 'approved',
@@ -35,6 +36,7 @@ export function buildUser(overrides = {}) {
         username: user.username,
         email: user.email,
         role: user.role,
+        onRoster: user.role === 'admin' ? user.onRoster === true : true,
         voicePart: user.voicePart,
         active: user.active,
         approvalStatus: user.approvalStatus,
@@ -51,6 +53,7 @@ export function buildAdmin(overrides = {}) {
     username: 'admin',
     email: 'admin@stpauls.parish',
     role: 'admin',
+    onRoster: false,
     approvalStatus: 'approved',
     ...overrides,
   });

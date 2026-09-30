@@ -15,6 +15,8 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ['member', 'admin'], default: 'member' },
+    /** Admins are on the choir roster and attendance only when this is true. Members always are. */
+    onRoster: { type: Boolean, default: true },
     voicePart: {
       type: String,
       enum: USER_VOICE_PART_ENUM,
@@ -64,6 +66,7 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
     username: this.username,
     email: this.email,
     role: this.role,
+    onRoster: this.role === 'admin' ? this.onRoster === true : true,
     voicePart: this.voicePart,
     active: this.active,
     approvalStatus: this.approvalStatus,

@@ -183,9 +183,10 @@ describe('must-change-password workflow', () => {
       const member = buildUser();
       const id = member._id.toString();
 
-      User.findById.mockResolvedValue(admin);
+      User.findById.mockImplementation((lookupId) =>
+        Promise.resolve(String(lookupId) === String(member._id) ? member : admin)
+      );
       User.findOne
-        .mockImplementationOnce(() => findOneQuery(member))
         .mockImplementationOnce(() => findOneQuery(null))
         .mockImplementationOnce(() => findOneQuery(null));
 

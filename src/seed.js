@@ -26,6 +26,7 @@ async function seed() {
     email: adminEmail,
     passwordHash,
     role: 'admin',
+    onRoster: false,
     voicePart: 'tenor',
     active: true,
     approvalStatus: 'approved',

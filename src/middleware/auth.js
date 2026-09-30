@@ -171,8 +171,13 @@ export function requireApproved(req, res, next) {
   next();
 }
 
+/** Choir singers: every member, plus admins who were kept on the roster. */
+export const choirRosterClause = {
+  $or: [{ role: 'member' }, { role: 'admin', onRoster: true }],
+};
+
 export const approvedMemberFilter = {
-  role: 'member',
   active: true,
   approvalStatus: 'approved',
+  ...choirRosterClause,
 };

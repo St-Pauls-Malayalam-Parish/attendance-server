@@ -1,4 +1,5 @@
 import { Attendance } from '../models/Attendance.js';
+import { isLateArrival } from './attendance-status.js';
 
 export const ROSTER_ATTENDANCE_FILTERS = ['present', 'late', 'absent', 'excused'];
 
@@ -37,6 +38,34 @@ export function buildMemberAttendanceMatch(userId, attendanceStatus = '') {
 
 export async function findEventIdsByMemberAttendance(userId, attendanceStatus = '') {
   return Attendance.distinct('event', buildMemberAttendanceMatch(userId, attendanceStatus));
+}
+
+/** Status shown for one member at one event. Missing marks on a past event count as absent. */
+export function resolveMemberEventAttendance(record, eventDate) {
+  if (record?.status) {
+    if (isLateArrival(record)) {
+      return { status: 'present', late: true, display: 'late' };
+    }
+    if (record.status === 'present' || record.status === 'absent' || record.status === 'excused') {
+      return { status: record.status, late: false, display: record.status };
+    }
+  }
+
+  const upcoming = eventDate && new Date(eventDate).getTime() > Date.now();
+  if (upcoming) {
+    return { status: 'upcoming', late: false, display: 'upcoming' };
+  }
+  return { status: 'absent', late: false, display: 'absent' };
+}
+
+export function eventAttendanceMatchesFilter(resolved, filter) {
+  if (!filter) {
+    return true;
+  }
+  if (filter === 'present') {
+    return resolved.display === 'present' || resolved.display === 'late';
+  }
+  return resolved.display === filter;
 }
 
 export async function findUserIdsByAttendanceStatus(status, dateRange = null) {

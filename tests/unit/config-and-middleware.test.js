@@ -161,7 +161,11 @@ describe('auth middleware helpers', () => {
   });
 
   it('exports approved member filter', () => {
-    expect(approvedMemberFilter).toMatchObject({ role: 'member', active: true, approvalStatus: 'approved' });
+    expect(approvedMemberFilter).toMatchObject({
+      active: true,
+      approvalStatus: 'approved',
+      $or: [{ role: 'member' }, { role: 'admin', onRoster: true }],
+    });
   });
 
   it('revokes refresh token when user found', async () => {

@@ -84,6 +84,7 @@ router.post('/register', authLimiter, asyncHandler(async (req, res) => {
     passwordHash,
     voicePart,
     role: 'member',
+    onRoster: true,
     approvalStatus: 'pending',
   });
 

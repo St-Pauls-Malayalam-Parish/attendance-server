@@ -213,6 +213,7 @@ async function importMembers(options) {
         email: member.email,
         passwordHash: rowPasswordHash,
         role: 'member',
+        onRoster: true,
         voicePart: member.voicePart,
         active: true,
         approvalStatus: 'approved',
