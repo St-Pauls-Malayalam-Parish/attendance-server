@@ -165,7 +165,7 @@ async function loadMemberHistory(user, query) {
     history = history.filter((item) => item.status === statusFilter);
   }
 
-  const summary = statusFilter
+  const summary = statusFilter || selectedEvent
     ? summaryFromHistory(history)
     : summaryFromRecords(filteredRecords);
 

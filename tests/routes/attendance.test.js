@@ -130,6 +130,7 @@ describe('attendance routes', () => {
     expect(res.body.meta.event).toMatchObject({ id: String(event._id), title: event.title });
     expect(res.body.history).toHaveLength(1);
     expect(res.body.history[0].notes).toBe('Sang the psalm');
+    expect(res.body.summary.present).toBe(1);
   });
 
   it('rejects an unknown event filter', async () => {
