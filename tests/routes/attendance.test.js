@@ -107,6 +107,80 @@ describe('attendance routes', () => {
     expect(res.body.history.every((row) => row.status === 'upcoming')).toBe(true);
   });
 
+  it('filters member history to one event', async () => {
+    User.findById.mockResolvedValue(member);
+    const event = buildEvent({ date: new Date('2020-06-01T10:00:00.000Z') });
+    Event.findById.mockReturnValue({
+      select: () => ({ lean: async () => event }),
+    });
+    Event.countDocuments.mockResolvedValue(4);
+    Event.find.mockReturnValue({ sort: () => ({ lean: async () => [event] }) });
+    Attendance.find.mockReturnValue({
+      populate: () => ({
+        lean: async () => [{ event, status: 'present', late: false, notes: 'Sang the psalm' }],
+      }),
+    });
+
+    const res = await request(createApp())
+      .get(`/api/attendance/me?eventId=${event._id}`)
+      .set(authHeader(member));
+
+    expect(res.status).toBe(200);
+    expect(Event.find).toHaveBeenCalledWith(expect.objectContaining({ _id: String(event._id) }));
+    expect(res.body.meta.event).toMatchObject({ id: String(event._id), title: event.title });
+    expect(res.body.history).toHaveLength(1);
+    expect(res.body.history[0].notes).toBe('Sang the psalm');
+  });
+
+  it('rejects an unknown event filter', async () => {
+    User.findById.mockResolvedValue(member);
+    Event.findById.mockReturnValue({
+      select: () => ({ lean: async () => null }),
+    });
+
+    const res = await request(createApp())
+      .get(`/api/attendance/me?eventId=${new mongoose.Types.ObjectId()}`)
+      .set(authHeader(member));
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/not found/i);
+  });
+
+  it('exports the filtered history as a PDF', async () => {
+    User.findById.mockResolvedValue(member);
+    const event = buildEvent({ date: new Date('2020-06-01T10:00:00.000Z') });
+    Event.findById.mockReturnValue({
+      select: () => ({ lean: async () => event }),
+    });
+    Event.countDocuments.mockResolvedValue(1);
+    Event.find.mockReturnValue({ sort: () => ({ lean: async () => [event] }) });
+    Attendance.find.mockReturnValue({
+      populate: () => ({
+        lean: async () => [{ event, status: 'absent', notes: '' }],
+      }),
+    });
+
+    const pdf = await request(createApp())
+      .get(`/api/attendance/me/export?format=pdf&fields=event,status&eventId=${event._id}`)
+      .set(authHeader(member))
+      .buffer(true)
+      .parse((response, callback) => {
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => callback(null, Buffer.concat(chunks)));
+      });
+
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toMatch(/pdf/);
+    expect(pdf.headers['content-disposition']).toMatch(/st-pauls-my-attendance-.+\.pdf/);
+    expect(pdf.body.subarray(0, 4).toString()).toBe('%PDF');
+
+    const rejected = await request(createApp())
+      .get('/api/attendance/me/export?format=csv')
+      .set(authHeader(member));
+    expect(rejected.status).toBe(400);
+  });
+
   it('admin lists records and event roster', async () => {
     User.findById.mockResolvedValue(admin);
     const event = buildEvent();

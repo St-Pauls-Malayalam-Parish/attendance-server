@@ -319,7 +319,11 @@ export function buildRosterPdf(model) {
     drawHeader();
 
     if (!model.rows.length) {
-      doc.font('Helvetica').fontSize(10).fillColor(MUTED).text('No members match these filters.', left, y + 14);
+      doc.font('Helvetica').fontSize(10).fillColor(MUTED).text(
+        model.emptyLabel || 'No members match these filters.',
+        left,
+        y + 14
+      );
     }
 
     model.rows.forEach((row, rowIndex) => {

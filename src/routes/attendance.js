@@ -15,6 +15,11 @@ import {
   normalizeAttendanceInput,
   serializeRosterAttendance,
 } from '../utils/attendance-status.js';
+import {
+  buildAttendanceHistoryExportModel,
+  buildAttendanceHistoryPdf,
+  buildAttendanceHistoryWorkbook,
+} from '../utils/attendance-history-export.js';
 
 const router = Router();
 
@@ -103,27 +108,37 @@ function serializeHistoryEvent(event) {
   };
 }
 
-router.get('/me', asyncHandler(async (req, res) => {
-  if (req.user.role !== 'admin' && req.user.approvalStatus !== 'approved') {
-    return res.json({
-      user: req.user.toSafeJSON(),
-      pending: true,
-      summary: { present: 0, absent: 0, late: 0, excused: 0, total: 0, rate: 0 },
-      history: [],
-    });
+async function loadMemberHistory(user, query) {
+  if (user.role !== 'admin' && user.approvalStatus !== 'approved') {
+    return { pending: true, history: [], summary: { present: 0, absent: 0, late: 0, excused: 0, total: 0, rate: 0 }, totalUnfiltered: 0 };
   }
-  const { filter: eventFilter, error } = buildEventFilter(req.query);
+
+  const eventId = typeof query.eventId === 'string' ? query.eventId.trim() : '';
+  const sourceQuery = eventId
+    ? { ...query, from: undefined, to: undefined, year: undefined }
+    : query;
+  const { filter: eventFilter, error } = buildEventFilter(sourceQuery);
   if (error) {
-    return res.status(400).json({ error });
+    return { error, status: 400 };
   }
 
-  const statusFilter = parseStatusFilter(req.query.status);
-  const { page, pageSize, skip } = parsePagination(req.query);
+  let selectedEvent = null;
+  if (eventId) {
+    if (!mongoose.isValidObjectId(eventId)) {
+      return { error: 'Invalid event', status: 400 };
+    }
+    selectedEvent = await Event.findById(eventId).select('title date type').lean();
+    if (!selectedEvent) {
+      return { error: 'Event not found', status: 404 };
+    }
+    eventFilter._id = eventId;
+  }
 
+  const statusFilter = parseStatusFilter(query.status);
   const [totalUnfiltered, events, records] = await Promise.all([
     Event.countDocuments({}),
     Event.find(eventFilter).sort({ date: -1 }).lean(),
-    Attendance.find({ user: req.user._id })
+    Attendance.find({ user: user._id })
       .populate({
         path: 'event',
         match: eventFilter,
@@ -150,18 +165,84 @@ router.get('/me', asyncHandler(async (req, res) => {
     history = history.filter((item) => item.status === statusFilter);
   }
 
-  const total = history.length;
-  const paginatedHistory = history.slice(skip, skip + pageSize);
   const summary = statusFilter
     ? summaryFromHistory(history)
     : summaryFromRecords(filteredRecords);
 
+  return { history, summary, totalUnfiltered, selectedEvent };
+}
+
+router.get('/me/export', asyncHandler(async (req, res) => {
+  const format = String(req.query.format || '').toLowerCase();
+  if (format !== 'pdf' && format !== 'xlsx') {
+    return res.status(400).json({ error: 'Choose a PDF or Excel export' });
+  }
+
+  const result = await loadMemberHistory(req.user, req.query);
+  if (result.error) {
+    return res.status(result.status).json({ error: result.error });
+  }
+  if (result.pending) {
+    return res.status(403).json({ error: 'Your account is waiting for admin approval' });
+  }
+
+  const model = buildAttendanceHistoryExportModel({
+    history: result.history,
+    user: req.user,
+    query: req.query,
+    selectedEvent: result.selectedEvent,
+  });
+  if (model.error) {
+    return res.status(400).json({ error: model.error });
+  }
+
+  const stamp = new Date().toISOString().slice(0, 10);
+  const filename = `st-pauls-my-attendance-${stamp}.${format === 'pdf' ? 'pdf' : 'xlsx'}`;
+  const body = format === 'pdf'
+    ? await buildAttendanceHistoryPdf(model)
+    : await buildAttendanceHistoryWorkbook(model);
+
+  res.setHeader(
+    'Content-Type',
+    format === 'pdf'
+      ? 'application/pdf'
+      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  );
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(body);
+}));
+
+router.get('/me', asyncHandler(async (req, res) => {
+  const result = await loadMemberHistory(req.user, req.query);
+  if (result.error) {
+    return res.status(result.status).json({ error: result.error });
+  }
+  if (result.pending) {
+    return res.json({
+      user: req.user.toSafeJSON(),
+      pending: true,
+      summary: { present: 0, absent: 0, late: 0, excused: 0, total: 0, rate: 0 },
+      history: [],
+    });
+  }
+
+  const { page, pageSize, skip } = parsePagination(req.query);
+  const total = result.history.length;
   res.json({
     user: req.user.toSafeJSON(),
-    summary,
-    history: paginatedHistory,
+    summary: result.summary,
+    history: result.history.slice(skip, skip + pageSize),
     pagination: buildPaginationMeta({ page, pageSize, total }),
-    meta: { totalUnfiltered },
+    meta: {
+      totalUnfiltered: result.totalUnfiltered,
+      event: result.selectedEvent
+        ? {
+            id: result.selectedEvent._id.toString(),
+            title: result.selectedEvent.title,
+            date: result.selectedEvent.date,
+          }
+        : null,
+    },
   });
 }));
 
