@@ -3,6 +3,9 @@ import {
   buildRosterExportModel,
   buildRosterPdf,
   buildRosterWorkbook,
+  rosterExportFields,
+  rosterFilterLines,
+  selectedExportFields,
 } from '../../src/utils/roster-export.js';
 
 const member = {
@@ -91,6 +94,81 @@ describe('roster export', () => {
     expect(model.filters.some((line) => line[0] === 'Event' && line[1].includes('Sunday service'))).toBe(
       true
     );
+  });
+
+  it('builds filter lines and field selections for summary exports', () => {
+    expect(rosterExportFields(false).map((field) => field.id)).toContain('rate');
+    expect(rosterExportFields(true).map((field) => field.id)).toContain('status');
+    expect(selectedExportFields(['name', 'voice'], false).map((field) => field.id)).toEqual(['name', 'voice']);
+
+    const filters = rosterFilterLines({}, { attendanceStatus: '', dateFiltered: false });
+    expect(filters).toEqual(
+      expect.arrayContaining([
+        ['Search', 'All members'],
+        ['Dates', 'All recorded events'],
+      ])
+    );
+  });
+
+  it('formats members with sparse profile and attendance summaries', () => {
+    const sparse = {
+      name: '',
+      username: '',
+      email: '',
+      voicePart: 'other',
+      voiceRange: '',
+      choirPathway: 'unknown-path',
+      role: 'member',
+      summary: { excused: 2 },
+      eventAttendance: { status: 'excused' },
+    };
+
+    const model = buildRosterExportModel({
+      members: [sparse],
+      meta: {
+        attendanceStatus: 'excused',
+        event: { id: 'e1', title: 'Sunday', date: '2026-09-27T04:00:00.000Z', type: 'service' },
+      },
+      query: { fields: 'name,voice,pathway,status' },
+    });
+
+    expect(model.rows[0]).toEqual(['—', '—', 'unknown-path', 'Excused']);
+    expect(model.tally).toMatch(/Excused 1/);
+  });
+
+  it('paginates long roster PDFs and handles empty result sets', async () => {
+    const members = Array.from({ length: 30 }, (_, index) => ({
+      ...member,
+      name: `Singer ${index + 1}`,
+      username: `singer${index + 1}`,
+      eventAttendance: index % 5 === 0 ? { status: 'upcoming' } : { status: 'present' },
+    }));
+
+    const crowded = buildRosterExportModel({
+      members,
+      meta: {
+        attendanceStatus: '',
+        event: { id: 'event-1', title: 'Sunday service', date: '2026-09-27T04:00:00.000Z', type: 'service' },
+      },
+      query: { fields: 'name,status' },
+    });
+    const crowdedPdf = await buildRosterPdf(crowded);
+    expect(crowdedPdf.length).toBeGreaterThan(4000);
+
+    const empty = buildRosterExportModel({
+      members: [],
+      meta: { attendanceStatus: '', dateFiltered: false },
+      query: {},
+    });
+    const emptyPdf = await buildRosterPdf(empty);
+    expect(emptyPdf.subarray(0, 4).toString()).toBe('%PDF');
+
+    const workbook = await buildRosterWorkbook({
+      ...empty,
+      rows: [],
+      columns: rosterExportFields(false),
+    });
+    expect(Buffer.from(workbook).subarray(0, 2).toString()).toBe('PK');
   });
 
   it('renders a PDF and an Excel workbook', async () => {

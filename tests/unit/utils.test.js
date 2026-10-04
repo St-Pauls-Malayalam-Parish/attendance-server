@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   emailFromUsername,
+  isPlaceholderParishEmail,
   normalizeUsername,
   usernameFromName,
   validateEmail,
@@ -19,6 +20,7 @@ import {
 } from '../../src/utils/attendance-status.js';
 import { isValidLiturgicalColor, LITURGICAL_COLORS } from '../../src/utils/liturgical-colors.js';
 import { MIN_PASSWORD_LENGTH, validatePassword } from '../../src/utils/password.js';
+import { isChoirVoicePart, voicePartNeedsUpdate } from '../../src/utils/voice-parts.js';
 import { faqAudiencesForRole, isFaqAudience } from '../../src/utils/faq-audiences.js';
 
 describe('user-fields', () => {
@@ -31,16 +33,24 @@ describe('user-fields', () => {
   it('validates username rules', () => {
     expect(validateUsername('ab')).toMatch(/3–32/);
     expect(validateUsername('evan.thomas')).toBeNull();
+    expect(validateUsername('evan thomas')).toMatch(/spaces/);
   });
 
   it('validates email', () => {
     expect(validateEmail('bad')).toBeTruthy();
     expect(validateEmail('a@b.co')).toBeNull();
+    expect(validateEmail('a @b.co')).toMatch(/spaces/);
   });
 
   it('derives username and email from name', () => {
     expect(usernameFromName('Evan Thomas')).toBe('evan.thomas');
     expect(emailFromUsername('evan')).toBe('evan@stpauls.parish');
+  });
+
+  it('detects placeholder parish emails', () => {
+    expect(isPlaceholderParishEmail('annie@stpauls.parish')).toBe(true);
+    expect(isPlaceholderParishEmail('annie@gmail.com')).toBe(false);
+    expect(isPlaceholderParishEmail('')).toBe(true);
   });
 });
 
@@ -222,11 +232,21 @@ describe('faq-audiences', () => {
   });
 });
 
+describe('voice-parts', () => {
+  it('detects choir voice parts and missing assignments', () => {
+    expect(isChoirVoicePart('tenor')).toBe(true);
+    expect(isChoirVoicePart('other')).toBe(false);
+    expect(voicePartNeedsUpdate('tenor')).toBe(false);
+    expect(voicePartNeedsUpdate('other')).toBe(true);
+  });
+});
+
 describe('password', () => {
   it('validates required and optional passwords', () => {
     expect(validatePassword('', { required: true })).toMatch(/8 characters/);
     expect(validatePassword('short', { required: true })).toMatch(/8 characters/);
     expect(validatePassword('longenough', { required: true })).toBeNull();
+    expect(validatePassword('has space', { required: true })).toMatch(/spaces/);
     expect(validatePassword('', { required: false })).toBeNull();
     expect(validatePassword('short', { required: false })).toMatch(/8 characters/);
   });

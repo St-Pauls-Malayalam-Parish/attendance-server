@@ -84,6 +84,30 @@ describe('faqs routes', () => {
       .send({ question: '', answer: 'Answer', audience: 'member' });
     expect(bad.status).toBe(400);
 
+    const longQuestion = await request(createApp())
+      .post('/api/faqs')
+      .set(authHeader(admin))
+      .send({ question: 'x'.repeat(301), answer: 'Answer', audience: 'member' });
+    expect(longQuestion.status).toBe(400);
+
+    const longAnswer = await request(createApp())
+      .post('/api/faqs')
+      .set(authHeader(admin))
+      .send({ question: 'Question', answer: 'x'.repeat(5001), audience: 'member' });
+    expect(longAnswer.status).toBe(400);
+
+    const badSort = await request(createApp())
+      .post('/api/faqs')
+      .set(authHeader(admin))
+      .send({ question: 'Question', answer: 'Answer', audience: 'member', sortOrder: 'nope' });
+    expect(badSort.status).toBe(400);
+
+    const badPublished = await request(createApp())
+      .post('/api/faqs')
+      .set(authHeader(admin))
+      .send({ question: 'Question', answer: 'Answer', audience: 'member', published: 'yes' });
+    expect(badPublished.status).toBe(400);
+
     const badAudience = await request(createApp())
       .post('/api/faqs')
       .set(authHeader(admin))
@@ -104,6 +128,21 @@ describe('faqs routes', () => {
     Faq.findByIdAndDelete.mockResolvedValue(null);
     const del = await request(createApp()).delete(`/api/faqs/${faqId()}`).set(authHeader(admin));
     expect(del.status).toBe(404);
+  });
+
+  it('lets admins filter published FAQs by audience', async () => {
+    const adminOnly = buildFaq({ audience: 'admin', published: true });
+    Faq.find.mockReturnValue({
+      sort: () => ({
+        lean: async () => [adminOnly],
+      }),
+    });
+
+    const res = await request(createApp())
+      .get('/api/faqs?audience=admin')
+      .set(authHeader(admin));
+    expect(res.status).toBe(200);
+    expect(res.body.faqs[0].audience).toBe('admin');
   });
 
   it('blocks non-admin writes and pending members', async () => {

@@ -979,7 +979,7 @@ npm run import-members                # write to database
 | `name` | Yes | — |
 | `username` | No | Derived from name (`evan.thomas`) |
 | `email` | No | `username@stpauls.parish` |
-| `voicePart` | No | `tenor` if missing/invalid |
+| `voicePart` | No | `other` if missing/invalid (singers pick a part on first sign-in) |
 | `password` | No | `MEMBER_DEFAULT_PASSWORD` or `Choir@2026` |
 
 - Skips existing username/email (no duplicates)

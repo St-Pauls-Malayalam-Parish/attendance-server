@@ -13,11 +13,11 @@ import {
   validateUsername,
 } from '../src/utils/user-fields.js';
 import { validatePassword } from '../src/utils/password.js';
+import { isChoirVoicePart } from '../src/utils/voice-parts.js';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const VOICE_PARTS = new Set(['soprano', 'alto', 'tenor', 'bass']);
 const DEFAULT_DATA_FILE = path.join(__dirname, '../data/members.json');
 
 function printUsage() {
@@ -107,8 +107,11 @@ async function uniqueUsername(base, reserved = new Set()) {
 }
 
 function resolveVoicePart(value) {
-  const voicePart = typeof value === 'string' ? value.trim().toLowerCase() : 'tenor';
-  return VOICE_PARTS.has(voicePart) ? voicePart : 'tenor';
+  const voicePart = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!voicePart || voicePart === 'other') {
+    return 'other';
+  }
+  return isChoirVoicePart(voicePart) ? voicePart : 'other';
 }
 
 function normalizeRow(row, index) {

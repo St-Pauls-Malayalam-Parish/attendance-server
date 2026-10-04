@@ -116,7 +116,11 @@ describe('must-change-password workflow', () => {
         .post('/api/auth/change-password')
         .set(authHeader(user))
         .set('X-Auth-Client', 'bearer')
-        .send({ currentPassword: 'Choir@2026', newPassword: 'my-secure-pass' });
+        .send({
+          currentPassword: 'Choir@2026',
+          newPassword: 'my-secure-pass',
+          email: 'evan.thomas@gmail.com',
+        });
 
       expect(change.status).toBe(200);
       expect(change.body.user.mustChangePassword).toBe(false);

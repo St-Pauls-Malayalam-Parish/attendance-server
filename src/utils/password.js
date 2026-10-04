@@ -13,6 +13,10 @@ export function validatePassword(password, { required = false, fieldLabel = 'Pas
     return required ? message : null;
   }
 
+  if (/\s/.test(value)) {
+    return `${fieldLabel} cannot contain spaces`;
+  }
+
   if (value.length < MIN_PASSWORD_LENGTH) {
     return message;
   }

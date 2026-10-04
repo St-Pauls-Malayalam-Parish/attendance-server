@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildAttendanceHistoryExportModel } from '../../src/utils/attendance-history-export.js';
+import {
+  buildAttendanceHistoryExportModel,
+  buildAttendanceHistoryPdf,
+  buildAttendanceHistoryWorkbook,
+} from '../../src/utils/attendance-history-export.js';
 
 const history = [
   {
@@ -43,5 +47,75 @@ describe('attendance history export', () => {
       query: { fields: 'voice,email' },
     });
     expect(model.error).toMatch(/at least one column/i);
+  });
+
+  it('labels each attendance status and supports date filters', () => {
+    const rows = [
+      {
+        event: { title: 'Practice', date: new Date('2026-02-01T10:00:00.000Z'), type: 'practice', liturgicalColor: 'green' },
+        status: 'present',
+        notes: '',
+      },
+      {
+        event: { title: 'Concert', date: new Date('2026-03-01T10:00:00.000Z'), type: 'concert', liturgicalColor: 'purple' },
+        status: 'absent',
+        notes: 'Travel',
+      },
+      {
+        event: { title: 'Service', date: new Date('2026-04-01T10:00:00.000Z'), type: 'service', liturgicalColor: 'white' },
+        status: 'excused',
+        notes: '',
+      },
+      {
+        event: { title: 'Future', date: new Date('2026-12-01T10:00:00.000Z'), type: 'other', liturgicalColor: 'gold' },
+        status: 'upcoming',
+        notes: '',
+      },
+      {
+        event: { title: 'Unmarked', date: new Date('2026-05-01T10:00:00.000Z'), type: 'rehearsal', liturgicalColor: '' },
+        status: '',
+        notes: '',
+      },
+    ];
+
+    const model = buildAttendanceHistoryExportModel({
+      history: rows,
+      user: { name: 'Susan Jacob' },
+      query: {
+        search: 'service',
+        type: 'service',
+        liturgicalColor: 'white',
+        status: 'excused',
+        from: '2026-01-01',
+        to: '2026-12-31',
+      },
+      generatedAt: new Date('2026-10-01T00:00:00.000Z'),
+    });
+
+    expect(model.columns).toHaveLength(6);
+    expect(model.rows.map((row) => row[4])).toEqual([
+      'Present',
+      'Absent',
+      'Excused',
+      'Upcoming',
+      'Not marked',
+    ]);
+    expect(model.filters.find(([label]) => label === 'Dates')[1]).toMatch(/2026-01-01/);
+    expect(model.tally).toMatch(/Excused 1/);
+    expect(model.emptyLabel).toBe('No events match these filters.');
+  });
+
+  it('renders attendance history PDF and workbook exports', async () => {
+    const model = buildAttendanceHistoryExportModel({
+      history,
+      user: { name: 'Sajini M Chandy' },
+      query: {},
+    });
+
+    const pdf = await buildAttendanceHistoryPdf(model);
+    expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+
+    const workbook = await buildAttendanceHistoryWorkbook(model);
+    expect(Buffer.from(workbook).subarray(0, 2).toString()).toBe('PK');
   });
 });

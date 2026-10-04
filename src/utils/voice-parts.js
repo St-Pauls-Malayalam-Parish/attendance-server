@@ -6,3 +6,8 @@ export const USER_VOICE_PART_ENUM = [...CHOIR_VOICE_PARTS, 'other'];
 export function isChoirVoicePart(value) {
   return CHOIR_VOICE_PARTS.includes(value);
 }
+
+/** True when the singer still needs to pick soprano/alto/tenor/bass (e.g. legacy `other`). */
+export function voicePartNeedsUpdate(voicePart) {
+  return !isChoirVoicePart(voicePart);
+}

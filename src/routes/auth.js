@@ -11,13 +11,18 @@ import {
   revokeRefreshToken,
 } from '../middleware/auth.js';
 import { hashRefreshToken } from '../utils/tokens.js';
-import { normalizeUsername, validateEmail, validateUsername } from '../utils/user-fields.js';
+import {
+  isPlaceholderParishEmail,
+  normalizeUsername,
+  validateEmail,
+  validateUsername,
+} from '../utils/user-fields.js';
 import { asyncHandler } from '../utils/async-handler.js';
 import { audit } from '../logger.js';
 import { serializeMemberProfile } from '../utils/member-profile.js';
 import { validatePassword } from '../utils/password.js';
 
-import { isChoirVoicePart } from '../utils/voice-parts.js';
+import { isChoirVoicePart, voicePartNeedsUpdate } from '../utils/voice-parts.js';
 
 const router = Router();
 
@@ -47,6 +52,41 @@ function validateRegister({ name, username, email, password, voicePart }) {
 
 function wantsBearerTokens(req) {
   return req.headers['x-auth-client'] === 'bearer';
+}
+
+async function applyEmailUpdate(user, email) {
+  const emailError = validateEmail(email);
+  if (emailError) {
+    return { error: emailError, status: 400 };
+  }
+
+  const normalizedEmail = String(email).trim().toLowerCase();
+  if (isPlaceholderParishEmail(normalizedEmail)) {
+    return { error: 'Please enter your personal email address', status: 400 };
+  }
+
+  if (normalizedEmail === user.email) {
+    return { changed: false };
+  }
+
+  const existingEmail = await User.findOne({ email: normalizedEmail, _id: { $ne: user._id } });
+  if (existingEmail) {
+    return { error: 'An account with this email already exists', status: 409 };
+  }
+
+  user.email = normalizedEmail;
+  return { changed: true };
+}
+
+function authUserResponse(res, req, user) {
+  return issueAuthSession(res, user).then((session) => {
+    const body = { ok: true, user: session.user };
+    if (wantsBearerTokens(req)) {
+      body.token = session.accessToken;
+      body.refreshToken = session.refreshToken;
+    }
+    return body;
+  });
 }
 
 function sendAuthResponse(res, statusCode, session, req) {
@@ -102,6 +142,9 @@ router.post('/login', authLimiter, asyncHandler(async (req, res) => {
   if (usernameError) return res.status(400).json({ error: usernameError });
   if (!password) {
     return res.status(400).json({ error: 'Password is required' });
+  }
+  if (/\s/.test(String(password))) {
+    return res.status(400).json({ error: 'Password cannot contain spaces' });
   }
 
   const normalizedUsername = normalizeUsername(username);
@@ -200,8 +243,28 @@ router.get('/my-profile', requireAuth, requireFullSession, asyncHandler(async (r
   res.json({ profile: serializeMemberProfile(req.user) });
 }));
 
+router.patch('/account', requireAuth, authLimiter, asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  const result = await applyEmailUpdate(req.user, email);
+  if (result.error) {
+    return res.status(result.status).json({ error: result.error });
+  }
+
+  if (result.changed) {
+    await req.user.save();
+    audit('auth.email.updated', req);
+  }
+
+  const body = await authUserResponse(res, req, req.user);
+  return res.json(body);
+}));
+
 router.post('/change-password', requireAuth, authLimiter, asyncHandler(async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
+  const { currentPassword, newPassword, email, voicePart } = req.body;
 
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current and new password are required' });
@@ -221,17 +284,34 @@ router.post('/change-password', requireAuth, authLimiter, asyncHandler(async (re
     return res.status(400).json({ error: 'Choose a different password than your current one' });
   }
 
+  if (isPlaceholderParishEmail(req.user.email)) {
+    if (!email) {
+      return res.status(400).json({ error: 'Please enter your email address' });
+    }
+    const emailResult = await applyEmailUpdate(req.user, email);
+    if (emailResult.error) {
+      return res.status(emailResult.status).json({ error: emailResult.error });
+    }
+  } else if (email) {
+    const emailResult = await applyEmailUpdate(req.user, email);
+    if (emailResult.error) {
+      return res.status(emailResult.status).json({ error: emailResult.error });
+    }
+  }
+
+  if (req.user.mustChangePassword && voicePartNeedsUpdate(req.user.voicePart)) {
+    if (!voicePart || !isChoirVoicePart(voicePart)) {
+      return res.status(400).json({ error: 'Please select your voice part' });
+    }
+    req.user.voicePart = voicePart;
+  }
+
   req.user.passwordHash = await bcrypt.hash(newPassword, 12);
   req.user.mustChangePassword = false;
   await req.user.save();
 
-  const session = await issueAuthSession(res, req.user);
   audit('auth.password.changed', req);
-  const body = { ok: true, user: session.user };
-  if (wantsBearerTokens(req)) {
-    body.token = session.accessToken;
-    body.refreshToken = session.refreshToken;
-  }
+  const body = await authUserResponse(res, req, req.user);
   return res.json(body);
 }));
 

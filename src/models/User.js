@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { CHOIR_PATHWAYS } from '../utils/member-profile.js';
-import { USER_VOICE_PART_ENUM } from '../utils/voice-parts.js';
+import { isPlaceholderParishEmail } from '../utils/user-fields.js';
+import { USER_VOICE_PART_ENUM, voicePartNeedsUpdate } from '../utils/voice-parts.js';
 
 const profileHistoryFields = {
   recordedAt: { type: Date, default: Date.now },
@@ -71,6 +72,8 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
     active: this.active,
     approvalStatus: this.approvalStatus,
     mustChangePassword: this.mustChangePassword,
+    emailNeedsUpdate: isPlaceholderParishEmail(this.email),
+    voicePartNeedsUpdate: voicePartNeedsUpdate(this.voicePart),
   };
 };
 

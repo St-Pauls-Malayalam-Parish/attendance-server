@@ -231,6 +231,169 @@ describe('auth routes', () => {
     ).toBe(403);
   });
 
+  it('updates email on account', async () => {
+    const user = buildUser({ email: 'annie@stpauls.parish' });
+    User.findById.mockResolvedValue(user);
+    setFindOneResult(User, null);
+
+    const res = await request(createApp())
+      .patch('/api/auth/account')
+      .set(authHeader(user))
+      .set('X-Auth-Client', 'bearer')
+      .send({ email: 'annie.mathew@gmail.com' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.email).toBe('annie.mathew@gmail.com');
+    expect(res.body.user.emailNeedsUpdate).toBe(false);
+  });
+
+  it('validates account email updates', async () => {
+    const user = buildUser({ email: 'evan@gmail.com' });
+    User.findById.mockResolvedValue(user);
+
+    expect(
+      (await request(createApp()).patch('/api/auth/account').set(authHeader(user)).send({})).status
+    ).toBe(400);
+
+    expect(
+      (
+        await request(createApp())
+          .patch('/api/auth/account')
+          .set(authHeader(user))
+          .send({ email: 'evan@stpauls.parish' })
+      ).status
+    ).toBe(400);
+
+    setFindOneResult(User, buildUser({ email: 'taken@gmail.com' }));
+    expect(
+      (
+        await request(createApp())
+          .patch('/api/auth/account')
+          .set(authHeader(user))
+          .send({ email: 'taken@gmail.com' })
+      ).status
+    ).toBe(409);
+
+    setFindOneResult(User, null);
+    const unchanged = await request(createApp())
+      .patch('/api/auth/account')
+      .set(authHeader(user))
+      .send({ email: 'evan@gmail.com' });
+    expect(unchanged.status).toBe(200);
+    expect(unchanged.body.user.email).toBe('evan@gmail.com');
+  });
+
+  it('rejects login credentials that contain spaces', async () => {
+    setFindOneResult(User, buildUser());
+    bcrypt.compare.mockResolvedValue(true);
+
+    expect(
+      (
+        await request(createApp())
+          .post('/api/auth/login')
+          .send({ username: 'evan thomas', password: 'password123' })
+      ).status
+    ).toBe(400);
+
+    expect(
+      (
+        await request(createApp())
+          .post('/api/auth/login')
+          .send({ username: 'evan.thomas', password: 'pass word123' })
+      ).status
+    ).toBe(400);
+  });
+
+  it('updates optional email during password change', async () => {
+    const user = buildUser({ email: 'evan@gmail.com', passwordHash: 'old-hash' });
+    User.findById.mockResolvedValue(user);
+    bcrypt.compare.mockResolvedValue(true);
+    setFindOneResult(User, null);
+
+    const res = await request(createApp())
+      .post('/api/auth/change-password')
+      .set(authHeader(user))
+      .set('X-Auth-Client', 'bearer')
+      .send({
+        currentPassword: 'old-pass',
+        newPassword: 'new-pass-12',
+        email: 'evan.thomas@gmail.com',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.email).toBe('evan.thomas@gmail.com');
+
+    setFindOneResult(User, buildUser({ email: 'taken@gmail.com' }));
+    const conflict = await request(createApp())
+      .post('/api/auth/change-password')
+      .set(authHeader(user))
+      .send({
+        currentPassword: 'old-pass',
+        newPassword: 'new-pass-99',
+        email: 'taken@gmail.com',
+      });
+    expect(conflict.status).toBe(409);
+  });
+
+  it('requires a real email when replacing a placeholder during password change', async () => {
+    const user = buildUser({ mustChangePassword: true, passwordHash: 'old-hash', email: 'annie@stpauls.parish' });
+    User.findById.mockResolvedValue(user);
+    bcrypt.compare.mockResolvedValue(true);
+
+    const missingEmail = await request(createApp())
+      .post('/api/auth/change-password')
+      .set(authHeader(user, 'must-change-password'))
+      .send({ currentPassword: 'old-pass', newPassword: 'new-pass-12' });
+    expect(missingEmail.status).toBe(400);
+
+    setFindOneResult(User, null);
+    const res = await request(createApp())
+      .post('/api/auth/change-password')
+      .set(authHeader(user, 'must-change-password'))
+      .set('X-Auth-Client', 'bearer')
+      .send({
+        currentPassword: 'old-pass',
+        newPassword: 'new-pass-12',
+        email: 'annie.mathew@gmail.com',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.email).toBe('annie.mathew@gmail.com');
+    expect(res.body.user.mustChangePassword).toBe(false);
+  });
+
+  it('requires voice part on first login when not set', async () => {
+    const user = buildUser({
+      mustChangePassword: true,
+      passwordHash: 'old-hash',
+      voicePart: 'other',
+      email: 'annie.mathew@gmail.com',
+    });
+    User.findById.mockResolvedValue(user);
+    bcrypt.compare.mockResolvedValue(true);
+
+    const missing = await request(createApp())
+      .post('/api/auth/change-password')
+      .set(authHeader(user, 'must-change-password'))
+      .send({ currentPassword: 'old-pass', newPassword: 'new-pass-12' });
+    expect(missing.status).toBe(400);
+
+    const res = await request(createApp())
+      .post('/api/auth/change-password')
+      .set(authHeader(user, 'must-change-password'))
+      .set('X-Auth-Client', 'bearer')
+      .send({
+        currentPassword: 'old-pass',
+        newPassword: 'new-pass-12',
+        voicePart: 'alto',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.voicePart).toBe('alto');
+    expect(res.body.user.voicePartNeedsUpdate).toBe(false);
+    expect(user.voicePart).toBe('alto');
+  });
+
   it('changes password and clears mustChangePassword', async () => {
     const user = buildUser({ mustChangePassword: true, passwordHash: 'old-hash' });
     User.findById.mockResolvedValue(user);
@@ -240,10 +403,15 @@ describe('auth routes', () => {
       .post('/api/auth/change-password')
       .set(authHeader(user, 'must-change-password'))
       .set('X-Auth-Client', 'bearer')
-      .send({ currentPassword: 'old-pass', newPassword: 'new-pass-12' });
+      .send({
+        currentPassword: 'old-pass',
+        newPassword: 'new-pass-12',
+        email: 'evan.thomas@gmail.com',
+      });
 
     expect(res.status).toBe(200);
     expect(res.body.user.mustChangePassword).toBe(false);
+    expect(res.body.user.email).toBe('evan.thomas@gmail.com');
   });
 
   it('validates change-password errors', async () => {
@@ -362,7 +530,11 @@ describe('auth routes', () => {
       const res = await request(createApp())
         .post('/api/auth/change-password')
         .set('Cookie', [`token=${signTestToken(user)}`])
-        .send({ currentPassword: 'old-pass', newPassword: 'new-pass-12' });
+        .send({
+          currentPassword: 'old-pass',
+          newPassword: 'new-pass-12',
+          email: 'evan.thomas@gmail.com',
+        });
 
       expect(res.status).toBe(200);
       expect(res.body.ok).toBe(true);

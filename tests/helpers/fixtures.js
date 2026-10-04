@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import { vi } from 'vitest';
+import { isPlaceholderParishEmail } from '../../src/utils/user-fields.js';
+import { voicePartNeedsUpdate } from '../../src/utils/voice-parts.js';
 
 export const userId = () => new mongoose.Types.ObjectId();
 export const eventId = () => new mongoose.Types.ObjectId();
@@ -41,6 +43,8 @@ export function buildUser(overrides = {}) {
         active: user.active,
         approvalStatus: user.approvalStatus,
         mustChangePassword: user.mustChangePassword,
+        emailNeedsUpdate: isPlaceholderParishEmail(user.email),
+        voicePartNeedsUpdate: voicePartNeedsUpdate(user.voicePart),
       };
     },
     ...overrides,
