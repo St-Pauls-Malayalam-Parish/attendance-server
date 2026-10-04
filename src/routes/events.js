@@ -15,6 +15,7 @@ import {
   findEventIdsByMemberAttendance,
   parseRosterAttendanceFilter,
 } from '../utils/roster-attendance-filter.js';
+import { parseEventDate, serializeEventDate } from '../utils/event-datetime.js';
 
 const router = Router();
 const EVENT_TYPES = ['practice', 'service', 'concert', 'other'];
@@ -23,7 +24,7 @@ function serializeEvent(event) {
   return {
     id: event._id.toString(),
     title: event.title,
-    date: event.date,
+    date: serializeEventDate(event.date),
     type: event.type,
     notes: event.notes,
     liturgicalColor: event.liturgicalColor || '',
@@ -32,18 +33,19 @@ function serializeEvent(event) {
 
 function validateEventBody({ title, date, type, liturgicalColor }) {
   if (!title || !title.trim()) {
-    return 'Event title is required';
+    return { error: 'Event title is required' };
   }
-  if (!date || Number.isNaN(Date.parse(date))) {
-    return 'Event date is required';
+  const parsedDate = parseEventDate(date);
+  if (parsedDate.error) {
+    return { error: parsedDate.error };
   }
   if (!EVENT_TYPES.includes(type)) {
-    return 'Invalid event type';
+    return { error: 'Invalid event type' };
   }
   if (!isValidLiturgicalColor(liturgicalColor)) {
-    return 'Invalid liturgical colour';
+    return { error: 'Invalid liturgical colour' };
   }
-  return null;
+  return { date: parsedDate.date };
 }
 
 router.use(requireAuth, requireFullSession, requireApproved);
@@ -100,14 +102,14 @@ router.get('/', asyncHandler(async (req, res) => {
 
 router.post('/', requireAdmin, asyncHandler(async (req, res) => {
   const { title, date, type = 'practice', notes = '', liturgicalColor = '' } = req.body;
-  const validationError = validateEventBody({ title, date, type, liturgicalColor });
-  if (validationError) {
-    return res.status(400).json({ error: validationError });
+  const validation = validateEventBody({ title, date, type, liturgicalColor });
+  if (validation.error) {
+    return res.status(400).json({ error: validation.error });
   }
 
   const event = await Event.create({
     title: title.trim(),
-    date: new Date(date),
+    date: validation.date,
     type,
     notes: notes.trim(),
     liturgicalColor: liturgicalColor || '',
@@ -126,16 +128,16 @@ router.post('/', requireAdmin, asyncHandler(async (req, res) => {
 
 router.patch('/:id', requireAdmin, asyncHandler(async (req, res) => {
   const { title, date, type = 'practice', notes = '', liturgicalColor = '' } = req.body;
-  const validationError = validateEventBody({ title, date, type, liturgicalColor });
-  if (validationError) {
-    return res.status(400).json({ error: validationError });
+  const validation = validateEventBody({ title, date, type, liturgicalColor });
+  if (validation.error) {
+    return res.status(400).json({ error: validation.error });
   }
 
   const event = await Event.findByIdAndUpdate(
     req.params.id,
     {
       title: title.trim(),
-      date: new Date(date),
+      date: validation.date,
       type,
       notes: notes.trim(),
       liturgicalColor: liturgicalColor || '',
